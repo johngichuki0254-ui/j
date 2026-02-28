@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# =============================================================================
+# AnonManager v4.0 — Whonix-Style Tor Anonymity Suite
+# Entry point — sources all modules then delegates to main()
+# =============================================================================
+set -euo pipefail
+
+readonly AM_VERSION="4.0"
+readonly AM_LIBDIR="/usr/local/lib/anonmanager"
+
+# When running from dev/test environment, resolve lib relative to this script
+if [[ ! -d "${AM_LIBDIR}" ]]; then
+    readonly _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    declare AM_LIBDIR_EFFECTIVE="${_SCRIPT_DIR}"
+else
+    declare AM_LIBDIR_EFFECTIVE="${AM_LIBDIR}"
+fi
+
+# Source order is critical — dependencies must come before dependents
+_source_module() {
+    local mod="${AM_LIBDIR_EFFECTIVE}/${1}"
+    if [[ ! -f "${mod}" ]]; then
+        echo "[FATAL] Missing module: ${mod}" >&2
+        exit 1
+    fi
+    # shellcheck source=/dev/null
+    source "${mod}"
+}
+
+_source_module "core/init.sh"
+_source_module "core/compat.sh"
+_source_module "core/state.sh"
+_source_module "system/packages.sh"
+_source_module "system/backup.sh"
+_source_module "system/hardening.sh"
+_source_module "system/monitor.sh"
+_source_module "network/namespace.sh"
+_source_module "network/firewall.sh"
+_source_module "network/dns.sh"
+_source_module "network/ipv6.sh"
+_source_module "network/mac.sh"
+_source_module "tor/configure.sh"
+_source_module "tor/supervisor.sh"
+_source_module "tor/verify.sh"
+_source_module "ui/banner.sh"
+_source_module "ui/progress.sh"
+_source_module "ui/menu.sh"
+_source_module "modes/extreme.sh"
+_source_module "modes/partial.sh"
+_source_module "modes/disable.sh"
+
+main() {
+    # Order is security-critical: root check BEFORE any file I/O
+    check_root
+    initialize
+    acquire_lock
+    detect_capabilities
+    load_state
+    parse_arguments "$@"
+    show_main_menu
+}
+
+main "$@"
