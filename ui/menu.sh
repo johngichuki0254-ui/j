@@ -38,13 +38,14 @@ _menu_dialog() {
             "2" "🛡  Enable Partial Anonymity  (browser only, tools work)" \
             "3" "🔓  Disable Anonymity         (restore system)" \
             ""  "────────────────────────────────────────────────────" \
-            "4" "📊  Status Dashboard" \
-            "5" "🔍  Verify Anonymity          (10-point check)" \
-            "6" "🔄  Get New Tor Identity" \
-            "7" "🔎  Backend Report            (what changed on system)" \
-            "8" "📋  View Logs                 (live or static)" \
+            "4" "🌍  Identity & Location       (country, OS persona)" \
+            "5" "📊  Status Dashboard" \
+            "6" "🔍  Verify Anonymity          (10-point check)" \
+            "7" "🔄  Get New Tor Identity" \
+            "8" "🔎  Backend Report            (what changed on system)" \
+            "9" "📋  View Logs                 (live or static)" \
             ""  "────────────────────────────────────────────────────" \
-            "9" "🚨  Emergency Restore" \
+            "r" "🚨  Emergency Restore" \
             "0" "Exit" \
             2>&1 >/dev/tty) || break
 
@@ -53,12 +54,13 @@ _menu_dialog() {
             1) enable_extreme_anonymity;           _pause ;;
             2) enable_partial_anonymity;           _pause ;;
             3) disable_anonymity;                  _pause ;;
-            4) show_status_dashboard;              _pause ;;
-            5) verify_anonymity_comprehensive;     _pause ;;
-            6) get_new_tor_identity; echo ""; _pause ;;
-            7) show_backend_report;                        ;;
-            8) view_logs;                                  ;;
-            9)
+            4) run_identity_wizard && echo -e "\n${GREEN}Identity configured. It will apply on next Enable.${NC}"; _pause ;;
+            5) show_status_dashboard;              _pause ;;
+            6) verify_anonymity_comprehensive;     _pause ;;
+            7) get_new_tor_identity; echo ""; _pause ;;
+            8) show_backend_report;                        ;;
+            9) view_logs;                                  ;;
+            r|R)
                 dialog --yesno \
                     "Emergency restore will attempt to recover a broken system.\n\nThis will:\n  • Flush all anonmanager firewall rules\n  • Destroy the network namespace\n  • Restore DNS from backup\n  • Re-enable IPv6 if it was on\n\nContinue?" \
                     14 58
@@ -155,12 +157,13 @@ _menu_text() {
         echo -e "${GREEN}  2)${NC}  Enable Partial Anonymity    ${DIM}(browser only)${NC}"
         echo -e "${YELLOW}  3)${NC}  Disable Anonymity           ${DIM}(restore system)${NC}"
         echo -e "${BOLD}  ────────────────────────────────────────────────────${NC}"
-        echo -e "${CYAN}  4)${NC}  Verify Anonymity            ${DIM}(10-point check)${NC}"
-        echo -e "${CYAN}  5)${NC}  Get New Tor Identity"
-        echo -e "${CYAN}  6)${NC}  Backend Report              ${DIM}(what changed on system)${NC}"
-        echo -e "${CYAN}  7)${NC}  View Logs                   ${DIM}(live or static)${NC}"
+        echo -e "${CYAN}  4)${NC}  Identity & Location         ${DIM}(country, OS persona)${NC}"
+        echo -e "${CYAN}  5)${NC}  Verify Anonymity            ${DIM}(10-point check)${NC}"
+        echo -e "${CYAN}  6)${NC}  Get New Tor Identity"
+        echo -e "${CYAN}  7)${NC}  Backend Report              ${DIM}(what changed on system)${NC}"
+        echo -e "${CYAN}  8)${NC}  View Logs                   ${DIM}(live or static)${NC}"
         echo -e "${BOLD}  ────────────────────────────────────────────────────${NC}"
-        echo -e "${RED}  8)${NC}  Emergency Restore"
+        echo -e "${RED}  9)${NC}  Emergency Restore"
         echo -e "${RED}  0)${NC}  Exit"
         echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${NC}"
         echo ""
@@ -171,11 +174,16 @@ _menu_text() {
             1) enable_extreme_anonymity;       _pause ;;
             2) enable_partial_anonymity;       _pause ;;
             3) disable_anonymity;              _pause ;;
-            4) verify_anonymity_comprehensive; _pause ;;
-            5) get_new_tor_identity; echo ""; _pause ;;
-            6) show_backend_report;                    ;;
-            7) view_logs;                              ;;
-            8)
+            4)
+                run_identity_wizard && \
+                    echo -e "\n${GREEN}${SYM_CHECK} Identity saved. Enable Extreme mode to apply.${NC}"
+                _pause
+                ;;
+            5) verify_anonymity_comprehensive; _pause ;;
+            6) get_new_tor_identity; echo ""; _pause ;;
+            7) show_backend_report;                    ;;
+            8) view_logs;                              ;;
+            9)
                 echo -e "${RED}${SYM_WARN} Emergency Restore${NC}"
                 echo -e "${DIM}This will flush all firewall rules, destroy the namespace,"
                 echo -e "restore DNS, and restart networking.${NC}"

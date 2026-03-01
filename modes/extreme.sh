@@ -21,9 +21,23 @@ enable_extreme_anonymity() {
     local start_ts
     start_ts=$(date +%s)
 
-    pipeline_start "EXTREME ANONYMITY SETUP" 11
+    pipeline_start "EXTREME ANONYMITY SETUP" 12
 
-    # ── Step 1: Packages ──────────────────────────────────────
+    # ── Step 1: Identity / location ───────────────────────────
+    pipeline_step "Configuring identity and exit location"
+    if run_identity_wizard; then
+        if [[ -n "${_CHOSEN_LOCATION}" ]]; then
+            pipeline_detail "Location: $(_country_display_name "${_CHOSEN_LOCATION}")"
+            pipeline_detail "Persona:  ${_CHOSEN_PERSONA:-none}"
+            # Identity will be fully applied after tor_configure (step 7)
+        else
+            pipeline_detail "No location selected — Tor will choose exit randomly"
+        fi
+        pipeline_step_ok "identity configured"
+    else
+        pipeline_detail "Skipped — Tor will choose exit randomly"
+        pipeline_step_skip "no identity selected"
+    fi
     pipeline_step "Installing required packages"
     pipeline_detail "Package manager: ${PKG_MANAGER}"
     if install_required_packages 2>>"${AM_LOG_FILE}"; then
@@ -85,7 +99,14 @@ enable_extreme_anonymity() {
         return 1
     fi
 
-    # ── Step 7: Tor start + bootstrap ────────────────────────
+    # Apply identity — ExitNodes injected into torrc before Tor starts
+    if [[ -n "${_CHOSEN_LOCATION:-}" ]]; then
+        pipeline_detail "Applying exit country: $(_country_display_name "${_CHOSEN_LOCATION}")"
+        identity_apply "${_CHOSEN_LOCATION}" "${_CHOSEN_PERSONA:-none}" 2>>"${AM_LOG_FILE}"
+        pipeline_detail "ExitNodes → ${_TOR_CC[${_CHOSEN_LOCATION}]:-{any}}"
+    fi
+
+    # ── Step 8: Tor start + bootstrap ─────────────────────────
     pipeline_step "Starting Tor inside namespace and waiting for circuits"
     pipeline_detail "Launching: ip netns exec ${NS_NAME} sudo -u ${TOR_USER} tor"
     pipeline_detail "Bootstrap timeout: 180s"

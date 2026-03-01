@@ -26,7 +26,7 @@ disable_anonymity() {
     local start_ts
     start_ts=$(date +%s)
 
-    pipeline_start "SYSTEM RESTORE" 9
+    pipeline_start "SYSTEM RESTORE" 10
 
     # ── Step 1: Stop monitor ──────────────────────────────────
     pipeline_step "Stopping security watchdog"
@@ -59,7 +59,19 @@ disable_anonymity() {
     ns_destroy 2>>"${AM_LOG_FILE}"
     pipeline_step_ok "namespace destroyed"
 
-    # ── Step 5: Restore MAC ───────────────────────────────────
+    # ── Step 5: Restore identity ──────────────────────────────
+    pipeline_step "Restoring identity (hostname, timezone, User-Agent)"
+    if identity_is_active 2>/dev/null; then
+        local id_summary
+        id_summary=$(identity_summary 2>/dev/null || echo "unknown")
+        pipeline_detail "Was active: ${id_summary}"
+        identity_restore 2>>"${AM_LOG_FILE}"
+        pipeline_step_ok "hostname, timezone, UA restored"
+    else
+        pipeline_step_skip "no identity was active"
+    fi
+
+    # ── Step 6: Restore MAC ───────────────────────────────────
     pipeline_step "Restoring MAC address"
     if [[ -f "${AM_CONFIG_DIR}/mac_state" ]]; then
         local saved_iface saved_method
