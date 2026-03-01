@@ -168,6 +168,7 @@ source_modules() {
     log()          { true; }
     security_log() { true; }
     source "${PROJ_DIR}/system/identity.sh" 2>/dev/null || true
+    source "${PROJ_DIR}/system/prefs.sh"   2>/dev/null || true
 
     # Override save_state and load_state to use our test AM_STATE_FILE
     # (init.sh declares paths as readonly; we re-define the functions)
@@ -768,6 +769,198 @@ test_identity_module() {
 
 
 # =============================================================================
+# PREFS MODULE TESTS
+# =============================================================================
+
+test_prefs_module() {
+    echo -e "\n${CYAN}${BOLD}━━━ Preferences Module ━━━${NC}"
+
+    local pf="${PROJ_DIR}/system/prefs.sh"
+
+    # T1 — file exists
+    ((TESTS_RUN++)) || true
+    if [[ -f "${pf}" ]]; then
+        echo -e "  ${GREEN}✓${NC} prefs.sh exists"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} prefs.sh missing"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("prefs.sh exists"); return
+    fi
+
+    # T2 — syntax
+    ((TESTS_RUN++)) || true
+    if bash -n "${pf}" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} prefs.sh syntax OK"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} prefs.sh syntax errors"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("prefs.sh syntax"); return
+    fi
+
+    # T3 — prefs.sh sourced in entry point
+    ((TESTS_RUN++)) || true
+    if grep -q "system/prefs.sh" "${PROJ_DIR}/anonmanager" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} prefs.sh sourced in entry point"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} prefs.sh NOT sourced in entry point"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("prefs.sh sourced")
+    fi
+
+    # T4 — AM_PREFS_FILE defined in init.sh
+    ((TESTS_RUN++)) || true
+    if grep -q "AM_PREFS_FILE" "${PROJ_DIR}/core/init.sh" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} AM_PREFS_FILE defined in core/init.sh"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} AM_PREFS_FILE missing from core/init.sh"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("AM_PREFS_FILE in init.sh")
+    fi
+
+    # T5 — _PREF_PATTERNS covers required keys
+    ((TESTS_RUN++)) || true
+    set +u
+    if [[ -n "${_PREF_PATTERNS[last_location]+x}" && \
+          -n "${_PREF_PATTERNS[last_persona]+x}" && \
+          -n "${_PREF_PATTERNS[last_mac_vendor]+x}" ]]; then
+        echo -e "  ${GREEN}✓${NC} Required pref keys in pattern map"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} Missing required pref keys in pattern map"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("_PREF_PATTERNS keys")
+    fi
+    set -u
+
+    # T6 — prefs_save writes file, prefs_load reads it back
+    # Use the actual AM_PREFS_FILE path (readonly in test env = TMP_DIR/etc/anonmanager/user_prefs)
+    ((TESTS_RUN++)) || true
+    local _ptd="${TMP_DIR}/prefs_test"
+    mkdir -p "${_ptd}"
+    set +e
+    (
+        set +eu
+        log() { true; }
+        prefs_save "last_location" "us_ny" "last_persona" "macos_safari" "last_mac_vendor" "apple"
+        prefs_load
+        echo "loc=$(prefs_get last_location)"
+        echo "persona=$(prefs_get last_persona)"
+        echo "vendor=$(prefs_get last_mac_vendor)"
+    ) > "${_ptd}/out.txt" 2>/dev/null
+    set -e
+    if grep -q "loc=us_ny" "${_ptd}/out.txt" && \
+       grep -q "persona=macos_safari" "${_ptd}/out.txt" && \
+       grep -q "vendor=apple" "${_ptd}/out.txt"; then
+        echo -e "  ${GREEN}✓${NC} prefs_save → prefs_load round-trip correct"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} prefs round-trip failed: $(cat "${_ptd}/out.txt" 2>/dev/null)"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("prefs save/load round-trip")
+    fi
+
+    # T7 — prefs_save rejects invalid key
+    ((TESTS_RUN++)) || true
+    set +e
+    local t7_out
+    t7_out=$(
+        set +eu
+        log() { true; }
+        # Reset cache
+        _PREFS_CACHE=()
+        prefs_save "evil_key" "malicious_value"
+        prefs_load
+        prefs_get "evil_key"
+    ) 2>/dev/null
+    set -e
+    if [[ -z "${t7_out}" ]]; then
+        echo -e "  ${GREEN}✓${NC} prefs_save rejects unknown key (returned empty)"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} prefs_save accepted unknown key: '${t7_out}'"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("prefs rejects unknown key")
+    fi
+
+    # T8 — prefs_save rejects invalid value pattern (path traversal)
+    ((TESTS_RUN++)) || true
+    set +e
+    local t8_out
+    t8_out=$(
+        set +eu
+        log() { true; }
+        _PREFS_CACHE=()
+        prefs_save "last_location" "../../etc/passwd"
+        prefs_load
+        prefs_get "last_location"
+    ) 2>/dev/null
+    set -e
+    if [[ -z "${t8_out}" ]]; then
+        echo -e "  ${GREEN}✓${NC} prefs_save rejects invalid value (path traversal)"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} prefs_save accepted path traversal: '${t8_out}'"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("prefs rejects invalid value")
+    fi
+
+    # T9 — prefs_load ignores unknown keys in existing file
+    ((TESTS_RUN++)) || true
+    printf 'last_location=us_ny\nevil_key=bad\nlast_persona=macos_safari\n' \
+        > "${AM_PREFS_FILE}"
+    set +e
+    (
+        set +eu
+        log() { true; }
+        prefs_load
+        evil=$(prefs_get "evil_key")
+        loc=$(prefs_get "last_location")
+        echo "evil=|${evil}|"
+        echo "loc=|${loc}|"
+    ) > "${_ptd}/dirty_out.txt" 2>/dev/null
+    set -e
+    rm -f "${AM_PREFS_FILE}"
+    if grep -q "evil=||" "${_ptd}/dirty_out.txt" && \
+       grep -q "loc=|us_ny|" "${_ptd}/dirty_out.txt"; then
+        echo -e "  ${GREEN}✓${NC} prefs_load ignores unknown keys from file"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} prefs_load didn't filter unknown keys: $(cat "${_ptd}/dirty_out.txt")"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("prefs_load filters unknown keys")
+    fi
+
+    # T10 — mac.sh has vendor-generation support
+    ((TESTS_RUN++)) || true
+    if grep -q "_mac_generate\|_MAC_VENDORS" "${PROJ_DIR}/network/mac.sh" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} mac.sh has vendor MAC generation"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} mac.sh missing vendor MAC generation"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("mac.sh vendor generation")
+    fi
+
+    # T11 — wizard has previous-settings flow
+    ((TESTS_RUN++)) || true
+    if grep -q "prev_loc\|Use previous settings\|_wizard_confirm_previous" \
+        "${PROJ_DIR}/ui/identity_wizard.sh" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} identity_wizard.sh has previous-settings flow"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} identity_wizard.sh missing previous-settings flow"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("wizard previous-settings flow")
+    fi
+
+    # T12 — wizard has MAC vendor picker
+    ((TESTS_RUN++)) || true
+    if grep -q "_wizard_choose_mac_vendor\|_CHOSEN_MAC_VENDOR" \
+        "${PROJ_DIR}/ui/identity_wizard.sh" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} identity_wizard.sh has MAC vendor picker"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} identity_wizard.sh missing MAC vendor picker"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("wizard MAC vendor picker")
+    fi
+
+    rm -rf "${_ptd}"
+}
+
+# =============================================================================
 # ENTRY POINT
 # =============================================================================
 
@@ -793,6 +986,7 @@ main() {
     test_resolv_backup_types
     test_firewall_backend_detection
     test_identity_module
+    test_prefs_module
 
     echo ""
     echo -e "${CYAN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

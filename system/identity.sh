@@ -258,6 +258,11 @@ identity_apply() {
         > "${_IDENTITY_STATE}"
     chmod 600 "${_IDENTITY_STATE}"
 
+    # Persist as user preference so wizard pre-fills next time
+    prefs_save \
+        "last_location" "${key}" \
+        "last_persona"  "${persona:-none}" 2>/dev/null || true
+
     security_log "IDENTITY" "Identity applied: location=${key} persona=${persona:-none}"
 }
 

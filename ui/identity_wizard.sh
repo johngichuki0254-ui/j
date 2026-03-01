@@ -40,6 +40,36 @@ run_identity_wizard() {
     echo -e "  ${RED}✗${NC}  State-level Tor selection not possible (Tor is country-level)"
     echo ""
 
+    # ── Show previous settings if they exist ──────────────────────────────
+    local prev_loc prev_persona prev_vendor
+    prev_loc="$(prefs_get last_location 2>/dev/null || echo "")"
+    prev_persona="$(prefs_get last_persona 2>/dev/null || echo "")"
+    prev_vendor="$(prefs_get last_mac_vendor 2>/dev/null || echo "")"
+
+    if [[ -n "${prev_loc}" ]]; then
+        local prev_display
+        prev_display="$(_country_display_name "${prev_loc}" 2>/dev/null || echo "${prev_loc}")"
+        echo -e "${CYAN}${BOLD}Your previous settings:${NC}"
+        echo -e "  Location:  ${GREEN}${prev_display}${NC} (${prev_loc})"
+        [[ -n "${prev_persona}" && "${prev_persona}" != "none" ]] && \
+            echo -e "  Persona:   ${GREEN}${prev_persona}${NC}"
+        [[ -n "${prev_vendor}" ]] && \
+            echo -e "  MAC vendor:${GREEN} ${prev_vendor}${NC}"
+        echo ""
+
+        if is_interactive; then
+            read -r -p "$(echo -e "${CYAN}Use previous settings? (Y/n): ${NC}")" use_prev
+            if [[ ! "${use_prev}" =~ ^[Nn]$ ]]; then
+                _CHOSEN_LOCATION="${prev_loc}"
+                _CHOSEN_PERSONA="${prev_persona:-none}"
+                echo -e "\n${GREEN}${SYM_CHECK} Previous settings loaded.${NC}\n"
+                _wizard_confirm_previous
+                return $?
+            fi
+        fi
+        echo ""
+    fi
+
     read -r -p "$(echo -e "${CYAN}Press Enter to continue or Ctrl+C to skip...${NC}")"
 
     # Step 1: Choose region → country/state
@@ -51,10 +81,109 @@ run_identity_wizard() {
     # Step 2: Choose OS persona
     _wizard_choose_persona
 
+    # Step 3: Choose MAC vendor
+    _wizard_choose_mac_vendor
+
     # Confirm
     _wizard_confirm
 
     return 0
+}
+
+# =============================================================================
+# CONFIRM PREVIOUS SETTINGS (skip full wizard)
+# =============================================================================
+
+_wizard_confirm_previous() {
+    clear
+    echo -e "${CYAN}${BOLD}"
+    printf '═%.0s' $(seq 1 56); echo ""
+    printf "  %-52s\n" "CONFIRM PREVIOUS IDENTITY"
+    printf '═%.0s' $(seq 1 56)
+    echo -e "${NC}\n"
+
+    local display
+    display="$(_country_display_name "${_CHOSEN_LOCATION}" 2>/dev/null || echo "${_CHOSEN_LOCATION}")"
+    printf "  %-24s %s\n" "Exit country:" "${display}"
+    printf "  %-24s %s\n" "OS Persona:"   "${_CHOSEN_PERSONA:-none}"
+    printf "  %-24s %s\n" "Tor ExitNodes:" "${_TOR_CC[${_CHOSEN_LOCATION}]:-{any}}"
+    echo ""
+
+    read -r -p "$(echo -e "${CYAN}Apply these settings? (Y/n): ${NC}")" confirm
+    if [[ "${confirm}" =~ ^[Nn]$ ]]; then
+        _CHOSEN_LOCATION=""
+        _CHOSEN_PERSONA=""
+        echo -e "\n${YELLOW}Cancelled — running full wizard instead.${NC}\n"
+        sleep 1
+        # Fall through to full wizard
+        _wizard_choose_location || return 1
+        _wizard_choose_persona
+        _wizard_choose_mac_vendor
+        _wizard_confirm
+        return $?
+    fi
+
+    # Also ask for MAC vendor if not set
+    local prev_vendor
+    prev_vendor="$(prefs_get last_mac_vendor 2>/dev/null || echo "")"
+    if [[ -z "${prev_vendor}" ]]; then
+        _wizard_choose_mac_vendor
+    else
+        _CHOSEN_MAC_VENDOR="${prev_vendor}"
+    fi
+
+    return 0
+}
+
+# =============================================================================
+# STEP 3 — MAC VENDOR
+# =============================================================================
+
+declare -g _CHOSEN_MAC_VENDOR="random"
+
+_wizard_choose_mac_vendor() {
+    local prev_vendor
+    prev_vendor="$(prefs_get last_mac_vendor 2>/dev/null || echo "random")"
+
+    if command -v dialog >/dev/null 2>&1; then
+        _CHOSEN_MAC_VENDOR=$(dialog --clear \
+            --backtitle "AnonManager — Identity Setup" \
+            --title "[ Step 3: MAC Address Vendor ]" \
+            --menu "Choose MAC vendor prefix for your network interface.
+Previous: ${prev_vendor}
+(Only visible on your local network — not the internet)" 18 64 6 \
+            "apple"    "Apple  — looks like a Mac to your router" \
+            "samsung"  "Samsung — looks like a Samsung device" \
+            "dell"     "Dell   — looks like a Dell laptop" \
+            "lenovo"   "Lenovo — looks like a Lenovo laptop" \
+            "random"   "Fully random (recommended for maximum anonymity)" \
+            "preserve" "No change — keep current MAC" \
+            2>&1 >/dev/tty)
+    else
+        _text_mac_vendor_picker "${prev_vendor}"
+    fi
+    clear
+}
+
+_text_mac_vendor_picker() {
+    local prev="${1:-random}"
+    echo -e "\n${CYAN}${BOLD}Choose MAC address vendor [previous: ${prev}]:${NC}\n"
+    echo "  1) Apple   — looks like a Mac to your router"
+    echo "  2) Samsung — looks like a Samsung device"
+    echo "  3) Dell    — looks like a Dell laptop"
+    echo "  4) Lenovo  — looks like a Lenovo laptop"
+    echo "  5) Random  — fully random (recommended)"
+    echo "  6) Preserve — no change"
+    echo ""
+    read -r -p "$(echo -e "${GREEN}Choose [1-6, default=5]: ${NC}")" n
+    case "${n}" in
+        1) _CHOSEN_MAC_VENDOR="apple"    ;;
+        2) _CHOSEN_MAC_VENDOR="samsung"  ;;
+        3) _CHOSEN_MAC_VENDOR="dell"     ;;
+        4) _CHOSEN_MAC_VENDOR="lenovo"   ;;
+        6) _CHOSEN_MAC_VENDOR="preserve" ;;
+        *) _CHOSEN_MAC_VENDOR="random"   ;;
+    esac
 }
 
 # =============================================================================
@@ -360,8 +489,8 @@ _wizard_confirm() {
 
     printf "  %-24s %s\n" "Exit country:" "${loc_display}"
     printf "  %-24s %s\n" "OS Persona:"   "${_CHOSEN_PERSONA:-none}"
+    printf "  %-24s %s\n" "MAC vendor:"   "${_CHOSEN_MAC_VENDOR:-random}"
 
-    # Derive what Tor CC will be used
     if [[ -n "${_CHOSEN_LOCATION}" ]]; then
         local tor_cc="${_TOR_CC[${_CHOSEN_LOCATION}]:-unknown}"
         printf "  %-24s %s\n" "Tor ExitNodes:" "${tor_cc}"
@@ -374,14 +503,20 @@ _wizard_confirm() {
         fi
     fi
 
+    echo -e "\n  ${DIM}Settings will be remembered for next session.${NC}"
     echo ""
     read -r -p "$(echo -e "${CYAN}Apply this identity? (Y/n): ${NC}")" confirm
     if [[ "${confirm}" =~ ^[Nn]$ ]]; then
         _CHOSEN_LOCATION=""
         _CHOSEN_PERSONA=""
+        _CHOSEN_MAC_VENDOR="random"
         echo -e "\n${YELLOW}Cancelled.${NC}\n"
         return 1
     fi
+
+    # Save MAC vendor preference immediately on confirm
+    prefs_save "last_mac_vendor" "${_CHOSEN_MAC_VENDOR:-random}" 2>/dev/null || true
+
     return 0
 }
 

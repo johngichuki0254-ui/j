@@ -148,18 +148,20 @@ enable_extreme_anonymity() {
     dns_secure 2>>"${AM_LOG_FILE}"
     pipeline_step_ok "DNS locked → Tor (immutable resolv.conf)"
 
-    # ── Step 10: MAC + proxychains ────────────────────────────
+    # ── Step 11: MAC + proxychains ────────────────────────────
     pipeline_step "Randomizing MAC address and configuring proxychains"
     pipeline_detail "Interface: ${iface}"
-    if mac_spoof "${iface}" 2>>"${AM_LOG_FILE}"; then
-        pipeline_step_ok "MAC randomized"
+    local _mac_vendor="${_CHOSEN_MAC_VENDOR:-$(prefs_get last_mac_vendor 2>/dev/null || echo "random")}"
+    pipeline_detail "MAC vendor: ${_mac_vendor}"
+    if mac_spoof "${iface}" "${_mac_vendor}" 2>>"${AM_LOG_FILE}"; then
+        pipeline_step_ok "MAC randomized (vendor: ${_mac_vendor})"
     else
         pipeline_step_warn "MAC randomization failed (non-critical)"
     fi
     tor_configure_proxychains 2>>"${AM_LOG_FILE}"
     pipeline_detail "Proxychains → ${NS_TOR_IP}:${TOR_SOCKS_PORT}"
 
-    # ── Step 11: Monitor ──────────────────────────────────────
+    # ── Step 12: Monitor ──────────────────────────────────────
     pipeline_step "Starting background security watchdog"
     pipeline_detail "Check interval: 30s"
     pipeline_detail "Watches: Tor process, killswitch rules, DNS, IPv6, namespace"

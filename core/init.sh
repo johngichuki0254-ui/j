@@ -13,6 +13,7 @@ readonly AM_PROFILES_DIR="${AM_CONFIG_DIR}/profiles"
 readonly AM_LOG_FILE="/var/log/anonmanager.log"
 readonly AM_SECURITY_LOG="/var/log/anonmanager-security.log"
 readonly AM_STATE_FILE="${AM_CONFIG_DIR}/state"
+readonly AM_PREFS_FILE="${AM_CONFIG_DIR}/user_prefs"
 readonly AM_LOCK_FILE="/var/run/anonmanager.lock"
 readonly AM_MODULE_DIR="${AM_CONFIG_DIR}/modules"
 

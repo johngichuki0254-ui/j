@@ -43,6 +43,7 @@ _source_module "tor/configure.sh"
 _source_module "tor/supervisor.sh"
 _source_module "tor/verify.sh"
 _source_module "system/identity.sh"
+_source_module "system/prefs.sh"
 _source_module "ui/banner.sh"
 _source_module "ui/progress.sh"
 _source_module "ui/log_viewer.sh"
@@ -59,6 +60,7 @@ main() {
     acquire_lock
     detect_capabilities
     load_state
+    prefs_load
     parse_arguments "$@"
     show_main_menu
 }
