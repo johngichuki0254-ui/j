@@ -14,6 +14,9 @@ readonly AM_LOG_FILE="/var/log/anonmanager.log"
 readonly AM_SECURITY_LOG="/var/log/anonmanager-security.log"
 readonly AM_STATE_FILE="${AM_CONFIG_DIR}/state"
 readonly AM_PREFS_FILE="${AM_CONFIG_DIR}/user_prefs"
+readonly AM_SESSIONS_DIR="${AM_CONFIG_DIR}/sessions"
+readonly AM_BRIDGES_FILE="${AM_CONFIG_DIR}/bridges"
+readonly AM_ROTATE_PID_FILE="${AM_CONFIG_DIR}/rotate.pid"
 readonly AM_LOCK_FILE="/var/run/anonmanager.lock"
 readonly AM_MODULE_DIR="${AM_CONFIG_DIR}/modules"
 
@@ -162,8 +165,8 @@ trap '_cleanup_on_signal' INT TERM HUP
 
 initialize() {
     # Create config directories with tight permissions
-    mkdir -p "${AM_CONFIG_DIR}" "${AM_BACKUP_DIR}" "${AM_PROFILES_DIR}" "${AM_MODULE_DIR}"
-    chmod 700 "${AM_CONFIG_DIR}" "${AM_BACKUP_DIR}" "${AM_PROFILES_DIR}" "${AM_MODULE_DIR}"
+    mkdir -p "${AM_CONFIG_DIR}" "${AM_BACKUP_DIR}" "${AM_PROFILES_DIR}" "${AM_MODULE_DIR}" "${AM_SESSIONS_DIR}"
+    chmod 700 "${AM_CONFIG_DIR}" "${AM_BACKUP_DIR}" "${AM_PROFILES_DIR}" "${AM_MODULE_DIR}" "${AM_SESSIONS_DIR}"
 
     # Touch log files so they exist before first write
     touch "${AM_LOG_FILE}" "${AM_SECURITY_LOG}"

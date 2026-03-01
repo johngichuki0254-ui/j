@@ -101,12 +101,12 @@ get_new_tor_identity() {
     echo -e "${YELLOW}${SYM_WARN} Identity reset via restart${NC}"
 }
 
-# Comprehensive 10-point anonymity check
+# Comprehensive 12-point anonymity check
 verify_anonymity_comprehensive() {
     clear
     echo -e "${CYAN}${BOLD}"
     printf '%-55s\n' "╔══════════════════════════════════════════════════════╗"
-    printf "║  %-51s║\n" "ANONYMITY VERIFICATION — AnonManager v${AM_VERSION}"
+    printf "║  %-51s║\n" "12-POINT ANONYMITY VERIFICATION — v${AM_VERSION}"
     printf '%-55s\n' "╚══════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 
@@ -215,11 +215,38 @@ verify_anonymity_comprehensive() {
     fi
     _verify_test 10 "MAC randomization" "${t10_result}" "${t10_detail}"
 
+    # 11. DNS leak test (quick — local resolver + kernel socket checks)
+    local t11_result="warn" t11_detail="could not run"
+    local dns_leak_rc
+    run_dns_leak_test "quick" 2>/dev/null
+    dns_leak_rc=$?
+    case "${dns_leak_rc}" in
+        0) t11_result="pass"; t11_detail="no leaks detected" ;;
+        1) t11_result="fail"; t11_detail="DNS LEAK DETECTED" ;;
+        2) t11_result="warn"; t11_detail="inconclusive (Tor not reachable for API test)" ;;
+    esac
+    _verify_test 11 "DNS leak test" "${t11_result}" "${t11_detail}"
+
+    # 12. Locale/identity consistency
+    local t12_result="warn" t12_detail="no identity active"
+    local identity_loc
+    identity_loc="$(prefs_get last_location 2>/dev/null || echo "")"
+    if [[ -n "${identity_loc}" ]]; then
+        local _lc_out
+        _lc_out="$(run_locale_check "silent" "${identity_loc}" 2>/dev/null)"
+        local _lc_rc=$?
+        case "${_lc_rc}" in
+            0) t12_result="pass"; t12_detail="identity ${identity_loc} consistent" ;;
+            1) t12_result="fail"; t12_detail="locale mismatch — run locale check for details" ;;
+        esac
+    fi
+    _verify_test 12 "Locale/identity consistency" "${t12_result}" "${t12_detail}"
+
     echo ""
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "  ${GREEN}Passed:   ${passed}/10${NC}"
-    echo -e "  ${RED}Failed:   ${failed}/10${NC}"
-    echo -e "  ${YELLOW}Warnings: ${warnings}/10${NC}"
+    echo -e "  ${GREEN}Passed:   ${passed}/12${NC}"
+    echo -e "  ${RED}Failed:   ${failed}/12${NC}"
+    echo -e "  ${YELLOW}Warnings: ${warnings}/12${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
 

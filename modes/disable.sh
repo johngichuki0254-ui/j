@@ -123,6 +123,18 @@ disable_anonymity() {
         pipeline_step_skip "NetworkManager not active"
     fi
 
+    # ── Stop auto-rotate ─────────────────────────────────────
+    if auto_rotate_is_running 2>/dev/null; then
+        pipeline_step "Stopping auto-rotate"
+        auto_rotate_stop 2>>"${AM_LOG_FILE}"
+        pipeline_step_ok "auto-rotate stopped"
+    fi
+
+    # ── Close session log ─────────────────────────────────────
+    pipeline_step "Closing session log"
+    session_end 2>>"${AM_LOG_FILE}"
+    pipeline_step_ok "session recorded"
+
     # ── Save state ────────────────────────────────────────────
     ANONYMITY_ACTIVE="false"
     CURRENT_MODE="none"

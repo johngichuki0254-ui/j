@@ -39,11 +39,15 @@ _menu_dialog() {
             "3" "🔓  Disable Anonymity         (restore system)" \
             ""  "────────────────────────────────────────────────────" \
             "4" "🌍  Identity & Location       (country, OS persona)" \
-            "5" "📊  Status Dashboard" \
-            "6" "🔍  Verify Anonymity          (10-point check)" \
-            "7" "🔄  Get New Tor Identity" \
-            "8" "🔎  Backend Report            (what changed on system)" \
-            "9" "📋  View Logs                 (live or static)" \
+            "5" "🌉  Bridges                   (obfs4/snowflake for censored networks)" \
+            "6" "📊  Status Dashboard" \
+            "7" "🔍  Verify Anonymity          (12-point check)" \
+            "8" "🔄  Get New Tor Identity / Auto-rotate" \
+            "9" "🧪  DNS Leak Test" \
+            "a" "🕒  Session History" \
+            "b" "🌐  Locale Consistency Check" \
+            "c" "🔎  Backend Report            (what changed on system)" \
+            "d" "📋  View Logs                 (live or static)" \
             ""  "────────────────────────────────────────────────────" \
             "r" "🚨  Emergency Restore" \
             "0" "Exit" \
@@ -55,11 +59,15 @@ _menu_dialog() {
             2) enable_partial_anonymity;           _pause ;;
             3) disable_anonymity;                  _pause ;;
             4) run_identity_wizard && echo -e "\n${GREEN}Identity configured. It will apply on next Enable.${NC}"; _pause ;;
-            5) show_status_dashboard;              _pause ;;
-            6) verify_anonymity_comprehensive;     _pause ;;
-            7) get_new_tor_identity; echo ""; _pause ;;
-            8) show_backend_report;                        ;;
-            9) view_logs;                                  ;;
+            5) run_bridge_wizard;                  _pause ;;
+            6) show_status_dashboard;              _pause ;;
+            7) verify_anonymity_comprehensive;     _pause ;;
+            8) _auto_rotate_menu;                  _pause ;;
+            9) run_dns_leak_test "full"; echo ""; _pause ;;
+            a|A) show_session_history;                     ;;
+            b|B) run_locale_check "report"; echo ""; _pause ;;
+            c|C) show_backend_report;                      ;;
+            d|D) view_logs;                                ;;
             r|R)
                 dialog --yesno \
                     "Emergency restore will attempt to recover a broken system.\n\nThis will:\n  • Flush all anonmanager firewall rules\n  • Destroy the network namespace\n  • Restore DNS from backup\n  • Re-enable IPv6 if it was on\n\nContinue?" \
@@ -106,12 +114,17 @@ _menu_whiptail() {
             "1" "Enable Extreme Anonymity (all traffic)" \
             "2" "Enable Partial Anonymity (browser only)" \
             "3" "Disable Anonymity / Restore System" \
-            "4" "Status Dashboard" \
-            "5" "Verify Anonymity (10-point check)" \
-            "6" "New Tor Identity" \
-            "7" "Backend Report (what changed)" \
-            "8" "View Logs (live or static)" \
-            "9" "Emergency Restore" \
+            "4" "Identity & Location" \
+            "5" "Bridges (obfs4/snowflake)" \
+            "6" "Status Dashboard" \
+            "7" "Verify Anonymity (12-point)" \
+            "8" "New Tor Identity / Auto-rotate" \
+            "9" "DNS Leak Test" \
+            "a" "Session History" \
+            "b" "Locale Check" \
+            "c" "Backend Report" \
+            "d" "View Logs" \
+            "r" "Emergency Restore" \
             "0" "Exit" \
             3>&1 1>&2 2>&3) || break
 
@@ -120,12 +133,17 @@ _menu_whiptail() {
             1) enable_extreme_anonymity;       _pause ;;
             2) enable_partial_anonymity;       _pause ;;
             3) disable_anonymity;              _pause ;;
-            4) show_status_dashboard;          _pause ;;
-            5) verify_anonymity_comprehensive; _pause ;;
-            6) get_new_tor_identity; echo ""; _pause ;;
-            7) show_backend_report;                    ;;
-            8) view_logs;                              ;;
-            9) emergency_restore;              _pause ;;
+            4) run_identity_wizard;            _pause ;;
+            5) run_bridge_wizard;              _pause ;;
+            6) show_status_dashboard;          _pause ;;
+            7) verify_anonymity_comprehensive; _pause ;;
+            8) _auto_rotate_menu;              _pause ;;
+            9) run_dns_leak_test "full"; echo ""; _pause ;;
+            a|A) show_session_history;                 ;;
+            b|B) run_locale_check "report"; echo ""; _pause ;;
+            c|C) show_backend_report;                  ;;
+            d|D) view_logs;                            ;;
+            r|R) emergency_restore;            _pause ;;
             0) break ;;
         esac
     done
@@ -213,6 +231,24 @@ _menu_text() {
                 ;;
         esac
     done
+}
+
+_auto_rotate_menu() {
+    clear
+    echo -e "${CYAN}${BOLD}New Tor Identity / Auto-rotate${NC}\n"
+    echo "  1) Get new identity NOW"
+    echo "  2) Configure auto-rotate"
+    echo "  3) Stop auto-rotate"
+    echo "  0) Back"
+    echo ""
+    auto_rotate_status
+    echo ""
+    read -r -p "$(echo -e "${CYAN}Choice: ${NC}")" _ar_choice
+    case "${_ar_choice}" in
+        1) get_new_tor_identity; echo "" ;;
+        2) auto_rotate_configure ;;
+        3) auto_rotate_stop; echo -e "  ${GREEN}${SYM_CHECK} Stopped${NC}" ;;
+    esac
 }
 
 _pause() {

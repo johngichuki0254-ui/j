@@ -169,6 +169,44 @@ enable_extreme_anonymity() {
     start_monitoring 2>>"${AM_LOG_FILE}"
     pipeline_step_ok "watchdog running (PID: ${MONITORING_PID:-?})"
 
+    # ── Step 13: Session log + exit IP record ─────────────────
+    pipeline_step "Recording session"
+    session_start "extreme" 2>>"${AM_LOG_FILE}"
+    # Capture exit IP in background (non-blocking)
+    (
+        sleep 5
+        local _sip
+        _sip="$(timeout 12 curl -s             --socks5-hostname "${NS_TOR_IP}:${TOR_SOCKS_PORT}"             "https://icanhazip.com" 2>/dev/null | tr -d "[:space:]" || echo "unknown")"
+        session_record_exit_ip "${_sip}"
+        session_record_identity
+        # Quick DNS leak check and record result
+        dns_leak_quick 2>/dev/null
+        session_record_dns_result "$?" 2>/dev/null
+    ) &
+    disown
+    pipeline_step_ok "session logging active"
+
+    # ── Step 14: Auto-rotate (if configured) ──────────────────
+    local _rotate_interval
+    _rotate_interval="$(prefs_get rotate_interval 2>/dev/null || echo "")"
+    if [[ -n "${_rotate_interval}" && "${_rotate_interval}" -gt 0 ]]; then
+        pipeline_step "Starting auto-rotate (${_rotate_interval}m interval)"
+        auto_rotate_start "${_rotate_interval}" 2>>"${AM_LOG_FILE}"
+        pipeline_step_ok "auto-rotate active"
+    fi
+
+    # ── Step 15: Locale consistency check ─────────────────────
+    if [[ -n "${_CHOSEN_LOCATION:-}" ]]; then
+        pipeline_step "Checking locale/identity consistency"
+        run_locale_check "silent" "${_CHOSEN_LOCATION}" 2>>"${AM_LOG_FILE}"
+        local _lc_result=$?
+        if [[ "${_lc_result}" -eq 0 ]]; then
+            pipeline_step_ok "locale consistent with identity"
+        else
+            pipeline_step_warn "locale inconsistencies detected (see verify screen)"
+        fi
+    fi
+
     # ── Save state ────────────────────────────────────────────
     ANONYMITY_ACTIVE="true"
     CURRENT_MODE="extreme"

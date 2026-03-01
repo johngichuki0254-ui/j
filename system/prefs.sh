@@ -23,6 +23,9 @@ declare -grA _PREF_PATTERNS=(
     [last_mac_vendor]="^(apple|samsung|dell|lenovo|random|preserve)$"
     [last_interface]="^[a-zA-Z0-9_-]{1,16}$"
     [wizard_skip]="^(true|false)$"
+    [rotate_interval]="^[0-9]{1,4}$"
+    [bridges_enabled]="^(true|false)$"
+    [locale_check_warn]="^(true|false)$"
 )
 
 # In-memory prefs cache (populated by prefs_load)
