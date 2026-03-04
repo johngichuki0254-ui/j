@@ -9,11 +9,11 @@
 # Checks performed:
 #   1. System timezone matches identity country's expected timezone
 #   2. LANG/LC_ALL env var language matches identity country
-#   3. LC_TIME format matches expected country format
+#   3. LC_TIME format matches expected country format (date +%x output)
 #   4. hostname matches the spoofed hostname we set
 #   5. date command output timezone name is consistent
-#   6. /etc/locale.gen or /etc/default/locale consistency
-#   7. Browser locale headers (curl/wget UA consistency)
+#   6. /etc/default/locale file consistency
+#   7. curl/wget User-Agent consistency with chosen persona
 #   8. NTP server not leaking real location (warns if using ISP NTP)
 #
 # Returns:
@@ -43,14 +43,23 @@ declare -grA _LOCALE_EXPECTED_LANG=(
     # French
     [fr]="fr"
     # German
-    [de]="de" [at]="de" [ch]="de"
+    [de]="de" [at]="de"
+    # Switzerland: German (63%), French (23%), Italian (8%), Romansh (<1%).
+    # 'ch' alone defaults to German (majority), but sub-keys are provided for
+    # French-speaking (Geneva, Lausanne, Neuchâtel) and Italian-speaking cantons.
+    [ch]="de" [ch_de]="de" [ch_fr]="fr" [ch_it]="it"
     # Spanish
     [es]="es" [mx]="es" [ar]="es" [cl]="es" [co]="es" [pe]="es"
     [ve]="es" [ec]="es" [uy]="es" [cr]="es" [pa]="es"
     # Portuguese
     [br]="pt" [br_sp]="pt" [br_rj]="pt" [pt]="pt"
     # Dutch
-    [nl]="nl" [be]="nl"
+    [nl]="nl"
+    # Belgium: Dutch-speaking (Flanders) + French-speaking (Wallonia/Brussels).
+    # 'be' alone is ambiguous — mapped to French because Brussels, the capital
+    # and internationally dominant city, is primarily French in formal contexts.
+    # For precision, use be_nl (Flemish) or be_fr (Walloon/Brussels).
+    [be]="fr" [be_nl]="nl" [be_fr]="fr" [be_de]="de"
     # Nordic
     [se]="sv" [no]="nb" [fi]="fi" [dk]="da" [is]="is"
     # Italian
@@ -110,13 +119,14 @@ run_locale_check() {
     # Run all checks
     local results=()
 
-    results+=("$(_lc_check_timezone "${location}" "${mode}")")
-    results+=("$(_lc_check_lang     "${location}" "${mode}")")
-    results+=("$(_lc_check_hostname             "${mode}")")
-    results+=("$(_lc_check_date_output           "${mode}")")
-    results+=("$(_lc_check_locale_file "${location}" "${mode}")")
-    results+=("$(_lc_check_ua_consistency        "${mode}")")
-    results+=("$(_lc_check_ntp                   "${mode}")")
+    results+=("$(_lc_check_timezone     "${location}" "${mode}")")
+    results+=("$(_lc_check_lang         "${location}" "${mode}")")
+    results+=("$(_lc_check_lc_time      "${location}" "${mode}")")
+    results+=("$(_lc_check_hostname                   "${mode}")")
+    results+=("$(_lc_check_date_output                "${mode}")")
+    results+=("$(_lc_check_locale_file  "${location}" "${mode}")")
+    results+=("$(_lc_check_ua_consistency             "${mode}")")
+    results+=("$(_lc_check_ntp                        "${mode}")")
 
     # Count results
     local pass=0 warn=0 fail=0
@@ -233,7 +243,57 @@ _lc_check_lang() {
     fi
 }
 
-# Check 3: hostname matches what identity_apply set
+# Check 3: LC_TIME format matches expected country (date +%x output)
+_lc_check_lc_time() {
+    local location="${1}" mode="${2}"
+    [[ "${mode}" != "silent" ]] && printf "  ${DIM}[3] LC_TIME format check...${NC}"
+
+    if [[ -z "${location}" ]]; then
+        [[ "${mode}" != "silent" ]] && echo -e " ${DIM}no identity active${NC}"
+        return 2
+    fi
+
+    # Get the expected date format style for this country:
+    #   MDY = month/day/year  (US, Philippines)
+    #   DMY = day/month/year  (most of world)
+    #   YMD = year-month-day  (Japan, Korea, China, some Nordic)
+    local root_key="${location%%_*}"
+    local expected_order=""
+    case "${root_key}" in
+        us|ph)         expected_order="MDY" ;;
+        jp|kr|cn|tw|hu|lt|lv|ee|mn) expected_order="YMD" ;;
+        *)             expected_order="DMY" ;;
+    esac
+
+    # Check the actual LC_TIME locale being used
+    local current_lc_time
+    current_lc_time="$(locale 2>/dev/null | grep '^LC_TIME='         | cut -d= -f2 | tr -d '"' | tr -d "'" | cut -d_ -f1 | tr -d '[:space:]' || echo '')"
+
+    # Determine order implied by current LC_TIME locale language prefix
+    local actual_order=""
+    case "${current_lc_time}" in
+        en_US*|en-US*|fil|tl) actual_order="MDY" ;;
+        ja|ko|zh)              actual_order="YMD" ;;
+        hu|lt|lv|et|mn)       actual_order="YMD" ;;
+        "")                    actual_order="unknown" ;;
+        *)                     actual_order="DMY" ;;
+    esac
+
+    if [[ "${actual_order}" == "unknown" ]]; then
+        [[ "${mode}" != "silent" ]] &&             echo -e " ${DIM}LC_TIME unset — cannot verify${NC}"
+        return 2
+    fi
+
+    if [[ "${actual_order}" == "${expected_order}" ]]; then
+        [[ "${mode}" != "silent" ]] &&             echo -e " ${GREEN}${SYM_CHECK} date format order ${actual_order} matches ${location}${NC}"
+        return 0
+    else
+        [[ "${mode}" != "silent" ]] && echo -e             " ${YELLOW}${SYM_WARN} date format: system is ${actual_order}"             "but ${location} expects ${expected_order}${NC}"
+        return 2  # Warning only: LC_TIME is rarely visible externally
+    fi
+}
+
+# Check 4: hostname matches what identity_apply set
 _lc_check_hostname() {
     local mode="${1}"
     [[ "${mode}" != "silent" ]] && printf "  ${DIM}[3] Hostname check...${NC}"

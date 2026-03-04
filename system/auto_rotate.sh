@@ -48,30 +48,35 @@ auto_rotate_start() {
 
     # Launch daemon in background
     (
-        # Daemon loop — intentionally simple
+        # Propagate SIGTERM/SIGINT to the whole process group so that the
+        # sleep subprocess is also killed — prevents orphaned sleep processes.
+        trap 'kill 0' TERM INT
+
         local interval_sec=$(( interval * 60 ))
 
         while true; do
-            # Record next rotation time
+            # Record next rotation time for status display
             local next_epoch=$(( $(date '+%s') + interval_sec ))
             printf '%s\n' "${next_epoch}" > "${_ROTATE_NEXT_FILE}" 2>/dev/null || true
 
-            sleep "${interval_sec}"
+            # Interruptible sleep: run in background + wait so signals propagate
+            sleep "${interval_sec}" &
+            wait $! 2>/dev/null || break   # break if woken by signal (TERM/INT)
 
-            # Check if anonymity is still active before rotating
+            # Verify anonymity is still active before rotating
             local active="false"
             if [[ -f "${AM_STATE_FILE}" ]]; then
                 active="$(grep '^ANONYMITY_ACTIVE=' "${AM_STATE_FILE}" \
                     | cut -d= -f2 | tr -d '[:space:]' || echo 'false')"
             fi
 
-            [[ "${active}" != "true" ]] && {
+            if [[ "${active}" != "true" ]]; then
                 rm -f "${_ROTATE_NEXT_FILE}"
                 break
-            }
+            fi
 
             # Send NEWNYM via control port
-            _auto_rotate_send_newnym "${interval}"
+            _auto_rotate_send_newnym "auto"
 
         done
     ) &
@@ -220,16 +225,25 @@ _auto_rotate_send_newnym() {
     resp="$(printf 'AUTHENTICATE %s\r\nSIGNAL NEWNYM\r\nQUIT\r\n' "${cookie}" \
         | nc -w 3 "${NS_TOR_IP}" "${TOR_CONTROL_PORT}" 2>/dev/null || echo '')"
 
-    if echo "${resp}" | grep -q "250 OK"; then
-        log "INFO" "Auto-rotate: new identity requested (trigger=${trigger})"
-        security_log "AUTO_ROTATE" "NEWNYM sent (trigger=${trigger})"
-        # Capture new exit IP after brief wait
-        sleep 3
+    # Tor returns "250 OK" for immediate rotation or "250 RATE_LIMITED" when the
+    # request is queued (Tor enforces >= 10s between consecutive NEWNYMs).
+    # Both are successful outcomes — RATE_LIMITED means Tor will rotate shortly.
+    if echo "${resp}" | grep -qE "250 OK|250 RATE_LIMITED"; then
+        if echo "${resp}" | grep -q "RATE_LIMITED"; then
+            log "INFO" "Auto-rotate: NEWNYM queued (rate-limited — will fire in <10s)"
+            security_log "AUTO_ROTATE" "NEWNYM queued/rate-limited (trigger=${trigger})"
+        else
+            log "INFO" "Auto-rotate: NEWNYM accepted (trigger=${trigger})"
+            security_log "AUTO_ROTATE" "NEWNYM sent (trigger=${trigger})"
+        fi
+        # Tor requires at least 10 seconds to build new circuits after NEWNYM.
+        # Waiting 15s gives new circuits time to establish before checking exit IP.
+        sleep 15
         local new_ip
-        new_ip="$(timeout 10 curl -s \
+        new_ip="$(timeout 12 curl -s \
             --socks5-hostname "${NS_TOR_IP}:${TOR_SOCKS_PORT}" \
             "https://icanhazip.com" 2>/dev/null | tr -d '[:space:]' || echo 'unknown')"
-        security_log "AUTO_ROTATE" "New exit IP after rotation: ${new_ip}"
+        security_log "AUTO_ROTATE" "Exit IP after rotation: ${new_ip}"
         return 0
     else
         log "WARN" "Auto-rotate: NEWNYM failed (resp: ${resp:0:80})"

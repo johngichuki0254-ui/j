@@ -172,14 +172,14 @@ enable_extreme_anonymity() {
     # ── Step 13: Session log + exit IP record ─────────────────
     pipeline_step "Recording session"
     session_start "extreme" 2>>"${AM_LOG_FILE}"
-    # Capture exit IP in background (non-blocking)
+    # Capture exit IP and record DNS result in background (non-blocking).
+    # Note: "local" is intentionally absent — subshell variables are already
+    # isolated; "local" is only valid inside a function, not a bare subshell.
     (
         sleep 5
-        local _sip
         _sip="$(timeout 12 curl -s             --socks5-hostname "${NS_TOR_IP}:${TOR_SOCKS_PORT}"             "https://icanhazip.com" 2>/dev/null | tr -d "[:space:]" || echo "unknown")"
         session_record_exit_ip "${_sip}"
         session_record_identity
-        # Quick DNS leak check and record result
         dns_leak_quick 2>/dev/null
         session_record_dns_result "$?" 2>/dev/null
     ) &

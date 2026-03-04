@@ -244,14 +244,29 @@ BRIDGEMARK
         bridge_block+=$'\n'"Bridge ${line}"
     done < "${AM_BRIDGES_FILE}"
 
-    # Append to torrc
+    # Write atomically: build in a temp file, validate, then replace.
+    # Direct append to torrc would leave a half-written file on interruption
+    # (power loss, SIGKILL, disk full), causing Tor to fail to start.
+    local torrc_tmp
+    torrc_tmp="$(mktemp /etc/tor/torrc.bridge.XXXXXX)"
+    chmod 640 "${torrc_tmp}"
+
     {
+        cat /etc/tor/torrc
         echo ""
         echo "${bridge_block}"
         echo "## END AnonManager bridge configuration"
-    } >> /etc/tor/torrc
+    } > "${torrc_tmp}"
 
-    log "INFO" "Bridge config written to torrc"
+    # Validate the new config before replacing the live torrc
+    if su -s /bin/bash "${TOR_USER}" -c             "tor --verify-config -f ${torrc_tmp}" >/dev/null 2>&1; then
+        mv "${torrc_tmp}" /etc/tor/torrc
+        log "INFO" "Bridge config written to torrc (atomic)"
+    else
+        rm -f "${torrc_tmp}"
+        log "ERROR" "Bridge torrc validation failed — original torrc unchanged"
+        return 1
+    fi
 }
 
 _bridges_remove_from_torrc() {

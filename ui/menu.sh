@@ -176,16 +176,20 @@ _menu_text() {
         echo -e "${YELLOW}  3)${NC}  Disable Anonymity           ${DIM}(restore system)${NC}"
         echo -e "${BOLD}  ────────────────────────────────────────────────────${NC}"
         echo -e "${CYAN}  4)${NC}  Identity & Location         ${DIM}(country, OS persona)${NC}"
-        echo -e "${CYAN}  5)${NC}  Verify Anonymity            ${DIM}(10-point check)${NC}"
-        echo -e "${CYAN}  6)${NC}  Get New Tor Identity"
-        echo -e "${CYAN}  7)${NC}  Backend Report              ${DIM}(what changed on system)${NC}"
-        echo -e "${CYAN}  8)${NC}  View Logs                   ${DIM}(live or static)${NC}"
+        echo -e "${CYAN}  5)${NC}  Bridges                     ${DIM}(obfs4/snowflake for censored networks)${NC}"
+        echo -e "${CYAN}  6)${NC}  Verify Anonymity            ${DIM}(12-point check)${NC}"
+        echo -e "${CYAN}  7)${NC}  New Identity / Auto-rotate  ${DIM}(NEWNYM + rotation schedule)${NC}"
+        echo -e "${CYAN}  8)${NC}  DNS Leak Test               ${DIM}(3-method active check)${NC}"
+        echo -e "${CYAN}  a)${NC}  Session History             ${DIM}(past anonymity sessions)${NC}"
+        echo -e "${CYAN}  b)${NC}  Locale Check                ${DIM}(8-point identity consistency)${NC}"
+        echo -e "${CYAN}  c)${NC}  Backend Report              ${DIM}(what changed on system)${NC}"
+        echo -e "${CYAN}  d)${NC}  View Logs                   ${DIM}(live or static)${NC}"
         echo -e "${BOLD}  ────────────────────────────────────────────────────${NC}"
         echo -e "${RED}  9)${NC}  Emergency Restore"
         echo -e "${RED}  0)${NC}  Exit"
         echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${NC}"
         echo ""
-        read -r -p "$(echo -e "  ${GREEN}Choose [0-8]: ${NC}")" choice
+        read -r -p "$(echo -e "  ${GREEN}Choose: ${NC}")" choice
         echo ""
 
         case "${choice}" in
@@ -197,10 +201,14 @@ _menu_text() {
                     echo -e "\n${GREEN}${SYM_CHECK} Identity saved. Enable Extreme mode to apply.${NC}"
                 _pause
                 ;;
-            5) verify_anonymity_comprehensive; _pause ;;
-            6) get_new_tor_identity; echo ""; _pause ;;
-            7) show_backend_report;                    ;;
-            8) view_logs;                              ;;
+            5) run_bridge_wizard;              _pause ;;
+            6) verify_anonymity_comprehensive; _pause ;;
+            7) _auto_rotate_menu;              _pause ;;
+            8) run_dns_leak_test "full"; echo ""; _pause ;;
+            a|A) show_session_history;                  ;;
+            b|B) run_locale_check "report"; echo ""; _pause ;;
+            c|C) show_backend_report;                   ;;
+            d|D) view_logs;                             ;;
             9)
                 echo -e "${RED}${SYM_WARN} Emergency Restore${NC}"
                 echo -e "${DIM}This will flush all firewall rules, destroy the namespace,"

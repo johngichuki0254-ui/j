@@ -219,9 +219,11 @@ show_session_history() {
 }
 
 _session_stats() {
-    local limit="${1}"
+    local limit="${1:-0}"    # 0 = all-time stats (not limited to display window)
     local total_dur=0 count=0 leak_count=0
 
+    # Stats always cover all-time — the limit param controls the display window
+    # above in show_session_history, but statistics are more useful all-time.
     for f in "${AM_SESSIONS_DIR}"/*.log; do
         [[ -f "${f}" ]] || continue
         local dur="" dns=""
@@ -242,7 +244,7 @@ _session_stats() {
     local avg_m=$(( avg / 60 )) avg_s=$(( avg % 60 ))
 
     echo ""
-    echo -e "  ${BOLD}Session statistics (all time):${NC}"
+    echo -e "  ${BOLD}Session statistics (all sessions, not limited to view window):${NC}"
     printf "  %-28s %s\n" "Total sessions:" "${count}"
     printf "  %-28s %dm %02ds\n" "Average duration:" "${avg_m}" "${avg_s}"
     if [[ "${leak_count}" -gt 0 ]]; then
@@ -280,13 +282,18 @@ _session_set_field() {
     local key="${1}" val="${2}"
     [[ -f "${_SESSION_CURRENT}" ]] || return 0
 
-    # Sanitize value — allow printable ASCII only, no newlines
+    # Sanitize key: only lowercase letters and underscores allowed.
+    # Unsanitized key could break the sed s|^<key>=..| expression if it
+    # contains |, &, *, or other regex/sed metacharacters.
+    key="${key//[^a-z_]/}"
+    [[ -z "${key}" ]] && return 0
+
+    # Sanitize value: printable ASCII only, no newlines, max 128 chars
     val="$(echo "${val}" | tr -cd '[:print:]' | head -c 128)"
 
-    local tmp="${_SESSION_CURRENT}.tmp"
+    local tmp="${_SESSION_CURRENT}.tmp.$$"
     if grep -q "^${key}=" "${_SESSION_CURRENT}" 2>/dev/null; then
-        sed "s|^${key}=.*|${key}=${val}|" "${_SESSION_CURRENT}" > "${tmp}"
-        mv "${tmp}" "${_SESSION_CURRENT}"
+        sed "s|^${key}=.*|${key}=${val}|" "${_SESSION_CURRENT}" > "${tmp}"             && mv "${tmp}" "${_SESSION_CURRENT}"             || rm -f "${tmp}"
     else
         echo "${key}=${val}" >> "${_SESSION_CURRENT}"
     fi

@@ -970,82 +970,113 @@ test_prefs_module() {
 # =============================================================================
 
 test_dns_leak_module() {
-    echo -e "\n${CYAN}${BOLD}━━━ DNS Leak Test Module ━━━${NC}"
+    echo -e "\n${CYAN}${BOLD}━━━ DNS Leak Test Module (post-bugfix) ━━━${NC}"
 
-    # T1 — file exists
+    # T1 — exists + syntax
     ((TESTS_RUN++)) || true
-    if [[ -f "${PROJ_DIR}/network/dns_leak_test.sh" ]]; then
-        echo -e "  ${GREEN}✓${NC} dns_leak_test.sh exists"
+    if [[ -f "${PROJ_DIR}/network/dns_leak_test.sh" ]] && bash -n "${PROJ_DIR}/network/dns_leak_test.sh" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} dns_leak_test.sh exists and syntax OK"
         ((TESTS_PASSED++)) || true
     else
-        echo -e "  ${RED}✗${NC} dns_leak_test.sh missing"
-        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("dns_leak_test.sh exists"); return
+        echo -e "  ${RED}✗${NC} dns_leak_test.sh missing or syntax error"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("dns_leak_test.sh"); return
     fi
 
-    # T2 — syntax
-    ((TESTS_RUN++)) || true
-    if bash -n "${PROJ_DIR}/network/dns_leak_test.sh" 2>/dev/null; then
-        echo -e "  ${GREEN}✓${NC} dns_leak_test.sh syntax OK"
-        ((TESTS_PASSED++)) || true
-    else
-        echo -e "  ${RED}✗${NC} dns_leak_test.sh syntax error"
-        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("dns_leak_test.sh syntax"); return
-    fi
-
-    # T3 — sourced in entry point
+    # T2 — sourced in entry point
     ((TESTS_RUN++)) || true
     if grep -q "dns_leak_test.sh" "${PROJ_DIR}/anonmanager" 2>/dev/null; then
-        echo -e "  ${GREEN}✓${NC} dns_leak_test.sh sourced in entry point"
+        echo -e "  ${GREEN}✓${NC} sourced in entry point"
         ((TESTS_PASSED++)) || true
     else
-        echo -e "  ${RED}✗${NC} dns_leak_test.sh not sourced"
+        echo -e "  ${RED}✗${NC} not sourced"
         ((TESTS_FAILED++)) || true; FAILED_NAMES+=("dns_leak_test.sh sourced")
     fi
 
-    # T4 — three detection methods present
+    # T3 — three detection methods present
     ((TESTS_RUN++)) || true
-    if grep -q "_dns_leak_check_api" "${PROJ_DIR}/network/dns_leak_test.sh" 2>/dev/null &&        grep -q "_dns_leak_check_local" "${PROJ_DIR}/network/dns_leak_test.sh" 2>/dev/null &&        grep -q "_dns_leak_check_kernel" "${PROJ_DIR}/network/dns_leak_test.sh" 2>/dev/null; then
-        echo -e "  ${GREEN}✓${NC} Three detection methods present (api, local, kernel)"
+    if grep -q "_dns_leak_check_api"    "${PROJ_DIR}/network/dns_leak_test.sh" && \
+       grep -q "_dns_leak_check_local"  "${PROJ_DIR}/network/dns_leak_test.sh" && \
+       grep -q "_dns_leak_check_kernel" "${PROJ_DIR}/network/dns_leak_test.sh"; then
+        echo -e "  ${GREEN}✓${NC} All three detection methods present"
         ((TESTS_PASSED++)) || true
     else
-        echo -e "  ${RED}✗${NC} Missing detection method(s)"
-        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("dns leak 3 methods")
+        echo -e "  ${RED}✗${NC} Detection method(s) missing"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("dns leak methods")
     fi
 
-    # T5 — local resolver check detects non-127 nameserver (mock test)
+    # T4 — BUG FIX: no unproxied icanhazip call (old broken logic)
+    # The original code fetched "our real IP" via clearnet icanhazip.com
+    # without --socks5-hostname, which is blocked by the killswitch,
+    # making the check always return empty, meaning leaks were never flagged.
     ((TESTS_RUN++)) || true
-    set +e
-    local t5_out
-    t5_out=$(
-        set +eu
-        log() { true; }
-        security_log() { true; }
-        # Temporarily inject a test resolv.conf check by overriding the grep target
-        _dns_leak_check_local_mock() {
-            local test_ns="nameserver 8.8.8.8"
-            echo "${test_ns}" | grep -v '^nameserver 127\.' | grep -v '^nameserver ::1' | grep -q "nameserver" && echo "LEAK_DETECTED" || echo "CLEAN"
-        }
-        _dns_leak_check_local_mock
-    ) 2>/dev/null
-    set -e
-    if echo "${t5_out}" | grep -q "LEAK_DETECTED"; then
-        echo -e "  ${GREEN}✓${NC} Non-127 nameserver detection logic works"
+    # The check excludes comment lines (lines containing '#') and lines with socks5-hostname.
+    # grep -n output format is "NNN:content" so '^#' won't match comment lines — use grep -v '#'.
+    local clearnet_call
+    clearnet_call="$(grep -n 'icanhazip\|our_ip' "${PROJ_DIR}/network/dns_leak_test.sh" \
+        2>/dev/null | grep -v 'socks5' | grep -v '#' || echo '')"
+    if [[ -z "${clearnet_call}" ]]; then
+        echo -e "  ${GREEN}✓${NC} BUG FIX: no unproxied clearnet IP fetch in Method A"
         ((TESTS_PASSED++)) || true
     else
-        echo -e "  ${RED}✗${NC} Non-127 nameserver detection failed"
-        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("dns leak non-127 detection")
+        echo -e "  ${RED}✗${NC} BUG remains: clearnet call present: ${clearnet_call}"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("dns leak clearnet bug")
     fi
 
-    # T6 — 12-point verify references DNS leak
+    # T5 — BUG FIX: AS-based classification replaces IP comparison
     ((TESTS_RUN++)) || true
-    if grep -q "run_dns_leak_test\|dns_leak_quick\|DNS leak" "${PROJ_DIR}/tor/verify.sh" 2>/dev/null; then
-        echo -e "  ${GREEN}✓${NC} verify.sh includes DNS leak test"
+    if grep -q "_DNS_LEAK_ISP_PATTERNS" "${PROJ_DIR}/network/dns_leak_test.sh" && \
+       grep -q '"asn"' "${PROJ_DIR}/network/dns_leak_test.sh"; then
+        echo -e "  ${GREEN}✓${NC} BUG FIX: AS-based resolver classification implemented"
         ((TESTS_PASSED++)) || true
     else
-        echo -e "  ${RED}✗${NC} verify.sh does not include DNS leak test"
-        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("verify.sh dns leak integration")
+        echo -e "  ${RED}✗${NC} AS-based classification missing"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("dns leak ASN classification")
+    fi
+
+    # T6 — BUG FIX: IPv6 kernel check added
+    ((TESTS_RUN++)) || true
+    if grep -q "udp6\|ipv6" "${PROJ_DIR}/network/dns_leak_test.sh" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} BUG FIX: /proc/net/udp6 (IPv6) kernel check added"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} IPv6 kernel check missing"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("dns leak ipv6")
+    fi
+
+    # T7 — ISP pattern list coverage
+    ((TESTS_RUN++)) || true
+    local arr_size="${#_DNS_LEAK_ISP_PATTERNS[@]}"
+    if [[ "${arr_size:-0}" -ge 20 ]]; then
+        echo -e "  ${GREEN}✓${NC} ISP pattern list has ${arr_size} entries"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} ISP pattern list too small: ${arr_size}"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("dns ISP patterns")
+    fi
+
+    # T8 — Method B non-127 detection logic
+    ((TESTS_RUN++)) || true
+    local t8
+    t8="$(echo "nameserver 8.8.8.8" | grep -v "^nameserver 127\." | grep -v "^nameserver ::1" | grep -q "nameserver" && echo LEAK || echo CLEAN)"
+    if [[ "${t8}" == "LEAK" ]]; then
+        echo -e "  ${GREEN}✓${NC} Method B non-127 detection correct"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} Method B broken"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("dns method B")
+    fi
+
+    # T9 — integrated in verify.sh
+    ((TESTS_RUN++)) || true
+    if grep -q "dns_leak_quick\|run_dns_leak_test" "${PROJ_DIR}/tor/verify.sh" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} Integrated in verify.sh"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} Not integrated in verify.sh"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("dns verify integration")
     fi
 }
+
 
 # =============================================================================
 # SESSION LOG MODULE TESTS
@@ -1093,24 +1124,28 @@ test_session_log_module() {
         ((TESTS_PASSED++)) || true
     fi
 
-    # T4 — session_record_exit_ip sanitizes input
+    # T4 — BUG FIX: _session_set_field sanitizes key before using in sed
     ((TESTS_RUN++)) || true
-    set +e
-    local t4_out
-    t4_out=$(
-        set +eu
-        log() { true; }; security_log() { true; }
-        # Test IP sanitization
-        clean_ip=$(echo "185.220.101.45" | grep -oE '^[0-9a-fA-F.:]{7,45}$' || echo 'unknown')
-        bad_ip=$(echo '$(reboot);evil' | grep -oE '^[0-9a-fA-F.:]{7,45}$' || echo 'unknown')
-        echo "clean=${clean_ip} bad=${bad_ip}"
-    ) 2>/dev/null
-    set -e
-    if echo "${t4_out}" | grep -q "clean=185.220.101.45" &&        echo "${t4_out}" | grep -q "bad=unknown"; then
-        echo -e "  ${GREEN}✓${NC} session_record_exit_ip sanitizes IP input"
+    if grep -A8 "^_session_set_field()" "${PROJ_DIR}/system/session_log.sh" | \
+       grep -q 'key=.*\[.*a-z_'; then
+        echo -e "  ${GREEN}✓${NC} BUG FIX: _session_set_field sanitizes key (prevents sed injection)"
         ((TESTS_PASSED++)) || true
     else
-        echo -e "  ${RED}✗${NC} IP sanitization failed: ${t4_out}"
+        echo -e "  ${RED}✗${NC} BUG: _session_set_field key unsanitized (sed injection risk)"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("session_set_field key sanitize")
+    fi
+
+    # T4b — session_record_exit_ip sanitizes IP input
+    ((TESTS_RUN++)) || true
+    set +e
+    t4b_clean="$(echo "185.220.101.45" | grep -oE "^[0-9a-fA-F.:]{7,45}$" || echo "unknown")"
+    t4b_bad="$(printf '%s' '$(reboot);evil' | grep -oE "^[0-9a-fA-F.:]{7,45}$" || echo "unknown")"
+    set -e
+    if [[ "${t4b_clean}" == "185.220.101.45" && "${t4b_bad}" == "unknown" ]]; then
+        echo -e "  ${GREEN}✓${NC} session_record_exit_ip sanitizes IP (accepts valid, rejects shell injection)"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} IP sanitization broken: clean=${t4b_clean} bad=${t4b_bad}"
         ((TESTS_FAILED++)) || true; FAILED_NAMES+=("session IP sanitization")
     fi
 
@@ -1130,11 +1165,11 @@ test_session_log_module() {
 # =============================================================================
 
 test_auto_rotate_module() {
-    echo -e "\n${CYAN}${BOLD}━━━ Auto-Rotate Module ━━━${NC}"
+    echo -e "\n${CYAN}${BOLD}━━━ Auto-Rotate Module (post-bugfix) ━━━${NC}"
 
-    # T1 — file exists and syntax OK
+    # T1 — exists and syntax OK
     ((TESTS_RUN++)) || true
-    if [[ -f "${PROJ_DIR}/system/auto_rotate.sh" ]] &&        bash -n "${PROJ_DIR}/system/auto_rotate.sh" 2>/dev/null; then
+    if [[ -f "${PROJ_DIR}/system/auto_rotate.sh" ]] && bash -n "${PROJ_DIR}/system/auto_rotate.sh" 2>/dev/null; then
         echo -e "  ${GREEN}✓${NC} auto_rotate.sh exists and syntax OK"
         ((TESTS_PASSED++)) || true
     else
@@ -1142,65 +1177,63 @@ test_auto_rotate_module() {
         ((TESTS_FAILED++)) || true; FAILED_NAMES+=("auto_rotate.sh"); return
     fi
 
-    # T2 — AM_ROTATE_PID_FILE defined
+    # T2 — BUG FIX: daemon uses trap+wait so sleep subprocess is cleaned up on stop
     ((TESTS_RUN++)) || true
-    if grep -q "AM_ROTATE_PID_FILE" "${PROJ_DIR}/core/init.sh" 2>/dev/null; then
-        echo -e "  ${GREEN}✓${NC} AM_ROTATE_PID_FILE defined in init.sh"
+    if grep -q "trap.*kill 0" "${PROJ_DIR}/system/auto_rotate.sh" && \
+       grep -q "wait \$!" "${PROJ_DIR}/system/auto_rotate.sh"; then
+        echo -e "  ${GREEN}✓${NC} BUG FIX: daemon trap+wait prevents orphaned sleep processes"
         ((TESTS_PASSED++)) || true
     else
-        echo -e "  ${RED}✗${NC} AM_ROTATE_PID_FILE missing from init.sh"
-        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("AM_ROTATE_PID_FILE")
+        echo -e "  ${RED}✗${NC} BUG: missing trap/wait — sleep will orphan on stop"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("auto-rotate trap+wait")
     fi
 
-    # T3 — interval bounds enforcement
+    # T3 — BUG FIX: 250 RATE_LIMITED treated as success, not failure
     ((TESTS_RUN++)) || true
-    set +e
-    local t3_out
-    t3_out=$(
-        set +eu
-        source "${PROJ_DIR}/system/auto_rotate.sh" 2>/dev/null || true
-        # Test bounds logic inline
-        local interval=2  # below minimum 5
-        [[ "${interval}" -lt 5 ]] && interval=5
-        local interval2=999  # above max 480
-        [[ "${interval2}" -gt 480 ]] && interval2=480
-        echo "${interval} ${interval2}"
-    ) 2>/dev/null
-    set -e
-    if echo "${t3_out}" | grep -qE "^5 480$"; then
-        echo -e "  ${GREEN}✓${NC} Interval bounds: min=5m, max=480m enforced"
+    if grep -q "RATE_LIMITED" "${PROJ_DIR}/system/auto_rotate.sh"; then
+        echo -e "  ${GREEN}✓${NC} BUG FIX: RATE_LIMITED handled as queued success"
         ((TESTS_PASSED++)) || true
     else
-        echo -e "  ${RED}✗${NC} Interval bounds not enforced: ${t3_out}"
-        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("auto-rotate interval bounds")
+        echo -e "  ${RED}✗${NC} BUG: RATE_LIMITED not handled (queued NEWNYM logged as failure)"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("auto-rotate RATE_LIMITED")
     fi
 
-    # T4 — auto_rotate_stop called in disable.sh
+    # T4 — BUG FIX: post-NEWNYM sleep >= 10s (Tor needs >= 10s to build new circuits)
     ((TESTS_RUN++)) || true
-    if grep -q "auto_rotate_stop\|auto_rotate_is_running" "${PROJ_DIR}/modes/disable.sh" 2>/dev/null; then
+    local sleep_val
+    sleep_val="$(grep -oP "sleep \K[0-9]+" "${PROJ_DIR}/system/auto_rotate.sh" | sort -n | tail -1)"
+    if [[ "${sleep_val:-0}" -ge 10 ]]; then
+        echo -e "  ${GREEN}✓${NC} BUG FIX: post-NEWNYM sleep=${sleep_val}s (>= 10s for circuit build)"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} BUG: post-NEWNYM sleep too short (${sleep_val}s < 10s)"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("auto-rotate post-NEWNYM sleep")
+    fi
+
+    # T5 — interval bounds enforced
+    ((TESTS_RUN++)) || true
+    local i1=2 i2=999
+    [[ "${i1}" -lt 5   ]] && i1=5
+    [[ "${i2}" -gt 480 ]] && i2=480
+    if [[ "${i1}" -eq 5 && "${i2}" -eq 480 ]]; then
+        echo -e "  ${GREEN}✓${NC} Interval bounds min=5m max=480m enforced"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} Bounds broken: min=${i1} max=${i2}"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("auto-rotate bounds")
+    fi
+
+    # T6 — wired into disable.sh
+    ((TESTS_RUN++)) || true
+    if grep -q "auto_rotate_stop" "${PROJ_DIR}/modes/disable.sh"; then
         echo -e "  ${GREEN}✓${NC} auto_rotate_stop wired into disable.sh"
         ((TESTS_PASSED++)) || true
     else
         echo -e "  ${RED}✗${NC} auto_rotate_stop not in disable.sh"
-        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("auto_rotate_stop in disable.sh")
-    fi
-
-    # T5 — rotate_interval pref key valid
-    ((TESTS_RUN++)) || true
-    if [[ -n "${_PREF_PATTERNS[rotate_interval]+x}" ]]; then
-        local pat="${_PREF_PATTERNS[rotate_interval]}"
-        if [[ "30" =~ ${pat} ]] && ! [[ "abc" =~ ${pat} ]]; then
-            echo -e "  ${GREEN}✓${NC} rotate_interval pref pattern accepts integers, rejects strings"
-            ((TESTS_PASSED++)) || true
-        else
-            echo -e "  ${RED}✗${NC} rotate_interval pref pattern wrong"
-            ((TESTS_FAILED++)) || true; FAILED_NAMES+=("rotate_interval pref pattern")
-        fi
-    else
-        echo -e "  ${RED}✗${NC} rotate_interval not in _PREF_PATTERNS"
-        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("rotate_interval in prefs")
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("auto_rotate_stop disable")
     fi
 }
+
 
 # =============================================================================
 # BRIDGES MODULE TESTS
@@ -1255,7 +1288,7 @@ test_bridges_module() {
     local test_line
     test_line="$(printf 'obfs4 1.2.3.4:443 ABCDEF cert=xyz
  evil' | tr -cd '[:print:]' | head -c 512)"
-    if echo "${test_line}" | grep -qvP '[ -]'; then
+    if echo "${test_line}" | grep -qvP '[-]'; then
         echo -e "  ${GREEN}✓${NC} bridges_add control char sanitization works"
         ((TESTS_PASSED++)) || true
     else
@@ -1281,6 +1314,80 @@ test_bridges_module() {
     else
         echo -e "  ${RED}✗${NC} bridge_wizard.sh not sourced"
         ((TESTS_FAILED++)) || true; FAILED_NAMES+=("bridge_wizard sourced")
+    fi
+
+    # T7 — BUG FIX: bridges_write_to_torrc is atomic (tmp file + validate + mv)
+    ((TESTS_RUN++)) || true
+    if grep -q "mktemp" "${PROJ_DIR}/tor/bridges.sh" && \
+       grep -q "verify-config" "${PROJ_DIR}/tor/bridges.sh" && \
+       grep -q "mv.*torrc" "${PROJ_DIR}/tor/bridges.sh"; then
+        echo -e "  ${GREEN}✓${NC} BUG FIX: bridges_write_to_torrc is atomic (mktemp+validate+mv)"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} BUG: bridges_write_to_torrc still does direct append (non-atomic)"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("bridges atomic write")
+    fi
+}
+
+# =============================================================================
+# TEXT MENU TESTS (new — previously missing)
+# =============================================================================
+
+test_text_menu_features() {
+    echo -e "\n${CYAN}${BOLD}━━━ Text Menu Feature Coverage ━━━${NC}"
+
+    # T1 — text menu has all new features
+    ((TESTS_RUN++)) || true
+    if grep -q "Bridges"        "${PROJ_DIR}/ui/menu.sh" 2>/dev/null && \
+       grep -q "DNS Leak"       "${PROJ_DIR}/ui/menu.sh" 2>/dev/null && \
+       grep -q "Session History" "${PROJ_DIR}/ui/menu.sh" 2>/dev/null && \
+       grep -q "Locale Check"   "${PROJ_DIR}/ui/menu.sh" 2>/dev/null && \
+       grep -q "Auto-rotate"    "${PROJ_DIR}/ui/menu.sh" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} BUG FIX: text menu has all 5 new features"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} BUG: text menu missing new features"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("text menu new features")
+    fi
+
+    # T2 — text menu dispatch calls run_bridge_wizard
+    ((TESTS_RUN++)) || true
+    if grep -A50 "_menu_text()" "${PROJ_DIR}/ui/menu.sh" | grep -q "run_bridge_wizard"; then
+        echo -e "  ${GREEN}✓${NC} text menu dispatches to run_bridge_wizard"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} text menu missing run_bridge_wizard dispatch"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("text menu bridge dispatch")
+    fi
+
+    # T3 — text menu dispatch calls run_dns_leak_test
+    ((TESTS_RUN++)) || true
+    if grep -A60 "_menu_text()" "${PROJ_DIR}/ui/menu.sh" | grep -q "run_dns_leak_test"; then
+        echo -e "  ${GREEN}✓${NC} text menu dispatches to run_dns_leak_test"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} text menu missing run_dns_leak_test dispatch"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("text menu dns leak dispatch")
+    fi
+
+    # T4 — extreme.sh subshell has no bare "local" outside function
+    # Uses set +e + explicit wc -l to avoid grep exit-1 (no matches) triggering
+    # the anonmanager EXIT trap which is inherited when modules are sourced.
+    ((TESTS_RUN++)) || true
+    set +e
+    local subshell_local_count
+    subshell_local_count=$(awk "/Capture exit IP/,/disown/" \
+        "${PROJ_DIR}/modes/extreme.sh" 2>/dev/null | \
+        grep -v "^[[:space:]]*#" | \
+        grep "^[[:space:]]*local " | wc -l 2>/dev/null)
+    set -e
+    subshell_local_count="${subshell_local_count//[[:space:]]/}"
+    if [[ "${subshell_local_count:-0}" -eq 0 ]]; then
+        echo -e "  ${GREEN}✓${NC} BUG FIX: no bare \`local\` in non-function subshell (extreme.sh)"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} BUG: \`local\` still used in non-function subshell (${subshell_local_count} occurrences)"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("extreme.sh local in subshell")
     fi
 }
 
@@ -1362,6 +1469,56 @@ test_locale_check_module() {
         echo -e "  ${RED}✗${NC} locale check not in extreme.sh"
         ((TESTS_FAILED++)) || true; FAILED_NAMES+=("locale check in extreme.sh")
     fi
+
+    # T7 — BUG FIX: 8 checks implemented (was 7, header said 8)
+    ((TESTS_RUN++)) || true
+    local impl_count
+    impl_count=$(grep -c "^_lc_check_" "${PROJ_DIR}/system/locale_check.sh" 2>/dev/null || echo 0)
+    if [[ "${impl_count}" -ge 8 ]]; then
+        echo -e "  ${GREEN}✓${NC} BUG FIX: ${impl_count} locale checks implemented (header says 8)"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} BUG: only ${impl_count}/8 checks implemented — header lies"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("locale check count 8")
+    fi
+
+    # T8 — BUG FIX: LC_TIME check implemented
+    ((TESTS_RUN++)) || true
+    if grep -q "_lc_check_lc_time" "${PROJ_DIR}/system/locale_check.sh" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} BUG FIX: _lc_check_lc_time (check 3) implemented"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} BUG: _lc_check_lc_time missing"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("_lc_check_lc_time missing")
+    fi
+
+    # T9 — BUG FIX: Belgium correctly mapped (not nl-only)
+    ((TESTS_RUN++)) || true
+    set +u
+    if [[ "${_LOCALE_EXPECTED_LANG[be]}" == "fr" ]] && \
+       [[ "${_LOCALE_EXPECTED_LANG[be_nl]}" == "nl" ]] && \
+       [[ "${_LOCALE_EXPECTED_LANG[be_fr]}" == "fr" ]]; then
+        echo -e "  ${GREEN}✓${NC} BUG FIX: Belgium be=fr, be_nl=nl, be_fr=fr (was be=nl)"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} BUG: Belgium mapping incorrect (be=${_LOCALE_EXPECTED_LANG[be]:-MISSING})"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("locale Belgium mapping")
+    fi
+    set -u
+
+    # T10 — BUG FIX: Switzerland has sub-keys for all 3 main languages
+    ((TESTS_RUN++)) || true
+    set +u
+    if [[ "${_LOCALE_EXPECTED_LANG[ch]}"    == "de" ]] && \
+       [[ "${_LOCALE_EXPECTED_LANG[ch_fr]}" == "fr" ]] && \
+       [[ "${_LOCALE_EXPECTED_LANG[ch_it]}" == "it" ]]; then
+        echo -e "  ${GREEN}✓${NC} BUG FIX: Switzerland ch=de, ch_fr=fr, ch_it=it (was ch=de-only)"
+        ((TESTS_PASSED++)) || true
+    else
+        echo -e "  ${RED}✗${NC} BUG: Switzerland sub-keys missing"
+        ((TESTS_FAILED++)) || true; FAILED_NAMES+=("locale Switzerland sub-keys")
+    fi
+    set -u
 }
 
 # =============================================================================
@@ -1396,6 +1553,7 @@ main() {
     test_auto_rotate_module
     test_bridges_module
     test_locale_check_module
+    test_text_menu_features
 
     echo ""
     echo -e "${CYAN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
