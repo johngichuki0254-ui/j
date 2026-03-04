@@ -81,13 +81,19 @@ get_new_tor_identity() {
             resp="$(printf 'AUTHENTICATE %s\r\nSIGNAL NEWNYM\r\nQUIT\r\n' \
                 "${cookie}" \
                 | nc -w 3 "${NS_TOR_IP}" "${TOR_CONTROL_PORT}" 2>/dev/null || echo '')"
-            if echo "${resp}" | grep -q "250 OK"; then
-                echo -e "${GREEN}${SYM_CHECK} New Tor identity requested${NC}"
-                sleep 3
+            if echo "${resp}" | grep -qE "250 OK|250 RATE_LIMITED"; then
+                if echo "${resp}" | grep -q "RATE_LIMITED"; then
+                    echo -e "${YELLOW}${SYM_WARN} New identity queued (rate-limited — fires in <10s)${NC}"
+                else
+                    echo -e "${GREEN}${SYM_CHECK} New Tor identity requested${NC}"
+                fi
+                # Tor needs >= 10s to build new circuits — 15s gives margin
+                echo -e "${DIM}Waiting 15s for new circuits to establish...${NC}"
+                sleep 15
                 local new_ip
-                new_ip="$(timeout 10 curl -s \
+                new_ip="$(timeout 12 curl -s \
                     --socks5-hostname "${NS_TOR_IP}:${TOR_SOCKS_PORT}" \
-                    "https://icanhazip.com" 2>/dev/null || echo 'unknown')"
+                    "https://icanhazip.com" 2>/dev/null | tr -d '[:space:]' || echo 'unknown')"
                 echo -e "${GREEN}${SYM_CHECK} New exit IP: ${new_ip}${NC}"
                 security_log "IDENTITY" "New Tor identity: ${new_ip}"
                 return 0
@@ -101,6 +107,28 @@ get_new_tor_identity() {
     echo -e "${YELLOW}${SYM_WARN} Identity reset via restart${NC}"
 }
 
+# Helper for verify_anonymity_comprehensive — defined at module level to avoid
+# re-evaluation on every call to the outer function (bash nested-function overhead).
+_verify_test() {
+    local num="${1}" label="${2}" result="${3}" detail="${4:-}"
+    printf "${YELLOW}[%2s/12]${NC} %-40s" "${num}" "${label}"
+    case "${result}" in
+        pass)
+            echo -e "${GREEN}${SYM_CHECK} PASS${NC}${detail:+ — ${detail}}"
+            ((passed++)) || true
+            ;;
+        fail)
+            echo -e "${RED}${SYM_CROSS} FAIL${NC}${detail:+ — ${detail}}"
+            ((failed++)) || true
+            ;;
+        warn)
+            echo -e "${YELLOW}${SYM_WARN} WARN${NC}${detail:+ — ${detail}}"
+            ((warnings++)) || true
+            ((passed++)) || true
+            ;;
+    esac
+}
+
 # Comprehensive 12-point anonymity check
 verify_anonymity_comprehensive() {
     clear
@@ -111,26 +139,6 @@ verify_anonymity_comprehensive() {
     echo -e "${NC}"
 
     local passed=0 failed=0 warnings=0
-
-    _verify_test() {
-        local num="${1}" label="${2}" result="${3}" detail="${4:-}"
-        printf "${YELLOW}[%2s/10]${NC} %-40s" "${num}" "${label}"
-        case "${result}" in
-            pass)
-                echo -e "${GREEN}${SYM_CHECK} PASS${NC}${detail:+ — ${detail}}"
-                ((passed++)) || true
-                ;;
-            fail)
-                echo -e "${RED}${SYM_CROSS} FAIL${NC}${detail:+ — ${detail}}"
-                ((failed++)) || true
-                ;;
-            warn)
-                echo -e "${YELLOW}${SYM_WARN} WARN${NC}${detail:+ — ${detail}}"
-                ((warnings++)) || true
-                ((passed++)) || true
-                ;;
-        esac
-    }
 
     # 1. Tor process running
     local t1_result="fail" t1_detail="not running"
@@ -218,7 +226,9 @@ verify_anonymity_comprehensive() {
     # 11. DNS leak test (quick — local resolver + kernel socket checks)
     local t11_result="warn" t11_detail="could not run"
     local dns_leak_rc
-    run_dns_leak_test "quick" 2>/dev/null
+    # Use "silent" mode so DNS test output does not pollute the verify display.
+    # "quick" skips the API check but still prints Method B/C output.
+    run_dns_leak_test "silent" >/dev/null 2>&1
     dns_leak_rc=$?
     case "${dns_leak_rc}" in
         0) t11_result="pass"; t11_detail="no leaks detected" ;;
@@ -232,8 +242,7 @@ verify_anonymity_comprehensive() {
     local identity_loc
     identity_loc="$(prefs_get last_location 2>/dev/null || echo "")"
     if [[ -n "${identity_loc}" ]]; then
-        local _lc_out
-        _lc_out="$(run_locale_check "silent" "${identity_loc}" 2>/dev/null)"
+        run_locale_check "silent" "${identity_loc}" >/dev/null 2>&1
         local _lc_rc=$?
         case "${_lc_rc}" in
             0) t12_result="pass"; t12_detail="identity ${identity_loc} consistent" ;;

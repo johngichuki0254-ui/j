@@ -21,7 +21,7 @@ enable_extreme_anonymity() {
     local start_ts
     start_ts=$(date +%s)
 
-    pipeline_start "EXTREME ANONYMITY SETUP" 12
+    pipeline_start "EXTREME ANONYMITY SETUP" 13
 
     # ── Step 1: Identity / location ───────────────────────────
     pipeline_step "Configuring identity and exit location"
@@ -106,7 +106,7 @@ enable_extreme_anonymity() {
         pipeline_detail "ExitNodes → ${_TOR_CC[${_CHOSEN_LOCATION}]:-{any}}"
     fi
 
-    # ── Step 8: Tor start + bootstrap ─────────────────────────
+    # ── Step 7: Tor start + bootstrap ─────────────────────────
     pipeline_step "Starting Tor inside namespace and waiting for circuits"
     pipeline_detail "Launching: ip netns exec ${NS_NAME} sudo -u ${TOR_USER} tor"
     pipeline_detail "Bootstrap timeout: 180s"
@@ -148,7 +148,7 @@ enable_extreme_anonymity() {
     dns_secure 2>>"${AM_LOG_FILE}"
     pipeline_step_ok "DNS locked → Tor (immutable resolv.conf)"
 
-    # ── Step 11: MAC + proxychains ────────────────────────────
+    # ── Step 9: MAC + proxychains ─────────────────────────────
     pipeline_step "Randomizing MAC address and configuring proxychains"
     pipeline_detail "Interface: ${iface}"
     local _mac_vendor="${_CHOSEN_MAC_VENDOR:-$(prefs_get last_mac_vendor 2>/dev/null || echo "random")}"
@@ -161,7 +161,7 @@ enable_extreme_anonymity() {
     tor_configure_proxychains 2>>"${AM_LOG_FILE}"
     pipeline_detail "Proxychains → ${NS_TOR_IP}:${TOR_SOCKS_PORT}"
 
-    # ── Step 12: Monitor ──────────────────────────────────────
+    # ── Step 10: Monitor ──────────────────────────────────────
     pipeline_step "Starting background security watchdog"
     pipeline_detail "Check interval: 30s"
     pipeline_detail "Watches: Tor process, killswitch rules, DNS, IPv6, namespace"
@@ -169,7 +169,7 @@ enable_extreme_anonymity() {
     start_monitoring 2>>"${AM_LOG_FILE}"
     pipeline_step_ok "watchdog running (PID: ${MONITORING_PID:-?})"
 
-    # ── Step 13: Session log + exit IP record ─────────────────
+    # ── Step 11: Session log + exit IP record ─────────────────
     pipeline_step "Recording session"
     session_start "extreme" 2>>"${AM_LOG_FILE}"
     # Capture exit IP and record DNS result in background (non-blocking).
@@ -177,7 +177,9 @@ enable_extreme_anonymity() {
     # isolated; "local" is only valid inside a function, not a bare subshell.
     (
         sleep 5
-        _sip="$(timeout 12 curl -s             --socks5-hostname "${NS_TOR_IP}:${TOR_SOCKS_PORT}"             "https://icanhazip.com" 2>/dev/null | tr -d "[:space:]" || echo "unknown")"
+        _sip="$(timeout 12 curl -s \
+            --socks5-hostname "${NS_TOR_IP}:${TOR_SOCKS_PORT}" \
+            "https://icanhazip.com" 2>/dev/null | tr -d "[:space:]" || echo "unknown")"
         session_record_exit_ip "${_sip}"
         session_record_identity
         dns_leak_quick 2>/dev/null
@@ -186,7 +188,7 @@ enable_extreme_anonymity() {
     disown
     pipeline_step_ok "session logging active"
 
-    # ── Step 14: Auto-rotate (if configured) ──────────────────
+    # ── Step 12: Auto-rotate (if configured, conditional) ──────
     local _rotate_interval
     _rotate_interval="$(prefs_get rotate_interval 2>/dev/null || echo "")"
     if [[ -n "${_rotate_interval}" && "${_rotate_interval}" -gt 0 ]]; then
@@ -195,7 +197,7 @@ enable_extreme_anonymity() {
         pipeline_step_ok "auto-rotate active"
     fi
 
-    # ── Step 15: Locale consistency check ─────────────────────
+    # ── Step 13: Locale consistency check (conditional) ────────
     if [[ -n "${_CHOSEN_LOCATION:-}" ]]; then
         pipeline_step "Checking locale/identity consistency"
         run_locale_check "silent" "${_CHOSEN_LOCATION}" 2>>"${AM_LOG_FILE}"

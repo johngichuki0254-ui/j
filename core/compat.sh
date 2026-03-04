@@ -94,6 +94,8 @@ _check_required_commands() {
     local missing=()
     local required=(
         "ip" "sysctl" "tor" "curl"
+        "nc"    # Tor control port communication (NEWNYM, bootstrap check)
+        "xxd"   # Tor control auth cookie decoding
     )
 
     # Firewall commands

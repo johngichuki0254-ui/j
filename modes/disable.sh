@@ -26,7 +26,7 @@ disable_anonymity() {
     local start_ts
     start_ts=$(date +%s)
 
-    pipeline_start "SYSTEM RESTORE" 10
+    pipeline_start "SYSTEM RESTORE" 12
 
     # ── Step 1: Stop monitor ──────────────────────────────────
     pipeline_step "Stopping security watchdog"

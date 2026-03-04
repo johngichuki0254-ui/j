@@ -20,7 +20,7 @@ enable_partial_anonymity() {
     iface="$(detect_interface)" || return 1
     start_ts=$(date +%s)
 
-    pipeline_start "PARTIAL ANONYMITY SETUP" 8
+    pipeline_start "PARTIAL ANONYMITY SETUP" 9
 
     # ── Step 1: Packages ──────────────────────────────────────
     pipeline_step "Checking required packages"
@@ -69,6 +69,9 @@ enable_partial_anonymity() {
     }
     if ! tor_bootstrap_progress 180; then
         pipeline_step_fail "Tor bootstrap timed out"
+        # Partial mode left DNS locked, IPv6 disabled, namespace created.
+        # Must restore or system is left in a broken half-state.
+        emergency_restore
         return 1
     fi
     pipeline_step_ok "Tor running in namespace"
@@ -89,6 +92,20 @@ enable_partial_anonymity() {
     pipeline_step "Starting security watchdog"
     start_monitoring 2>>"${AM_LOG_FILE}"
     pipeline_step_ok "watchdog running"
+
+    # ── Session log ───────────────────────────────────────────
+    pipeline_step "Recording session"
+    session_start "partial" 2>>"${AM_LOG_FILE}"
+    # Capture exit IP in background (non-blocking)
+    (
+        sleep 5
+        _sip="$(timeout 12 curl -s \
+            --socks5-hostname "${NS_TOR_IP}:${TOR_SOCKS_PORT}" \
+            "https://icanhazip.com" 2>/dev/null | tr -d "[:space:]" || echo "unknown")"
+        session_record_exit_ip "${_sip}"
+    ) &
+    disown
+    pipeline_step_ok "session logging active"
 
     ANONYMITY_ACTIVE="true"
     CURRENT_MODE="partial"

@@ -40,7 +40,10 @@ declare -gA _PREFS_CACHE=()
 prefs_load() {
     _PREFS_CACHE=()
     [[ -f "${AM_PREFS_FILE}" ]] || return 0
-    [[ -r "${AM_PREFS_FILE}" ]] || return 0
+    if [[ ! -r "${AM_PREFS_FILE}" ]]; then
+        log "WARN" "Preferences file exists but is not readable: ${AM_PREFS_FILE}"
+        return 0
+    fi
 
     local key value
     while IFS='=' read -r key value || [[ -n "${key}" ]]; do
