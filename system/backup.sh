@@ -118,9 +118,12 @@ _backup_sysctl() {
 
     for key in "${keys[@]}"; do
         local safe_name="${key//\./_}"
+        local val
         # timeout 2 per key to avoid hangs on restricted kernels
-        timeout 2 sysctl -n "${key}" > "${dest}/sysctl/${safe_name}.val" 2>/dev/null || \
-            echo "UNKNOWN" > "${dest}/sysctl/${safe_name}.val"
+        val="$(timeout 2 sysctl -n "${key}" 2>/dev/null || echo "UNKNOWN")"
+        # Store "KEY=VALUE" so restore can recover the exact key name regardless
+        # of whether the key contains underscores (dots→underscores is lossy).
+        printf '%s=%s\n' "${key}" "${val}" > "${dest}/sysctl/${safe_name}.val"
     done
 }
 
@@ -303,11 +306,24 @@ _restore_sysctl() {
 
     for val_file in "${sysctl_dir}"/*.val; do
         [[ -f "${val_file}" ]] || continue
-        local safe_name val key
-        safe_name="$(basename "${val_file}" .val)"
-        key="${safe_name//_/.}"
-        val="$(cat "${val_file}" 2>/dev/null || echo '')"
-        [[ "${val}" == "UNKNOWN" || -z "${val}" ]] && continue
+        local line key val
+        line="$(cat "${val_file}" 2>/dev/null || echo '')"
+        [[ -z "${line}" ]] && continue
+
+        # New format: "key=value" stored inside the file (preserves underscores in key names).
+        # Legacy format: bare value only (pre-fix backups). Detect by presence of '='.
+        if [[ "${line}" == *=* ]]; then
+            key="${line%%=*}"
+            val="${line#*=}"
+        else
+            # Legacy: reconstruct key from filename (lossy — best effort)
+            local safe_name
+            safe_name="$(basename "${val_file}" .val)"
+            key="${safe_name//_/.}"
+            val="${line}"
+        fi
+
+        [[ "${val}" == "UNKNOWN" || -z "${val}" || -z "${key}" ]] && continue
         timeout 2 sysctl -w "${key}=${val}" >/dev/null 2>&1 || \
             log "WARN" "sysctl restore failed: ${key}=${val}"
     done

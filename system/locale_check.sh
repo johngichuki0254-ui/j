@@ -296,7 +296,7 @@ _lc_check_lc_time() {
 # Check 4: hostname matches what identity_apply set
 _lc_check_hostname() {
     local mode="${1}"
-    [[ "${mode}" != "silent" ]] && printf "  ${DIM}[3] Hostname check...${NC}"
+    [[ "${mode}" != "silent" ]] && printf "  ${DIM}[4] Hostname check...${NC}"
 
     local current_hn
     current_hn="$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo 'unknown')"
@@ -340,7 +340,7 @@ _lc_check_hostname() {
 # Check 4: date command output timezone abbreviation is consistent
 _lc_check_date_output() {
     local mode="${1}"
-    [[ "${mode}" != "silent" ]] && printf "  ${DIM}[4] date output TZ check...${NC}"
+    [[ "${mode}" != "silent" ]] && printf "  ${DIM}[5] date output TZ check...${NC}"
 
     local date_tz
     date_tz="$(date '+%Z' 2>/dev/null || echo 'unknown')"
@@ -364,7 +364,7 @@ _lc_check_date_output() {
 # Check 5: /etc/default/locale file consistency
 _lc_check_locale_file() {
     local location="${1}" mode="${2}"
-    [[ "${mode}" != "silent" ]] && printf "  ${DIM}[5] /etc/default/locale check...${NC}"
+    [[ "${mode}" != "silent" ]] && printf "  ${DIM}[6] /etc/default/locale check...${NC}"
 
     if [[ ! -f /etc/default/locale ]]; then
         [[ "${mode}" != "silent" ]] && echo -e " ${DIM}file absent (non-Debian system)${NC}"
@@ -388,7 +388,7 @@ _lc_check_locale_file() {
 # Check 6: curl/wget User-Agent consistency
 _lc_check_ua_consistency() {
     local mode="${1}"
-    [[ "${mode}" != "silent" ]] && printf "  ${DIM}[6] User-Agent consistency...${NC}"
+    [[ "${mode}" != "silent" ]] && printf "  ${DIM}[7] User-Agent consistency...${NC}"
 
     local curlrc_ua=""
     if [[ -f "${HOME}/.curlrc" ]]; then
@@ -423,7 +423,7 @@ _lc_check_ua_consistency() {
 # Check 7: NTP server not leaking real location
 _lc_check_ntp() {
     local mode="${1}"
-    [[ "${mode}" != "silent" ]] && printf "  ${DIM}[7] NTP configuration...${NC}"
+    [[ "${mode}" != "silent" ]] && printf "  ${DIM}[8] NTP configuration...${NC}"
 
     # Check if systemd-timesyncd is configured
     local ntp_servers=""

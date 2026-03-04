@@ -28,8 +28,15 @@ start_monitoring() {
         while true; do
             sleep "${_MONITOR_INTERVAL}"
 
-            # Only check if anonymity is supposed to be active
-            [[ "${ANONYMITY_ACTIVE}" == "true" ]] || continue
+            # Read current state from disk — subshell inherits a fork-time copy
+            # of ANONYMITY_ACTIVE that never updates when the parent disables.
+            # Reading AM_STATE_FILE is the only reliable way to see current state.
+            local _mon_active="false"
+            if [[ -f "${AM_STATE_FILE}" ]]; then
+                _mon_active="$(grep '^ANONYMITY_ACTIVE=' "${AM_STATE_FILE}" \
+                    | cut -d= -f2 | tr -d '[:space:]' || echo 'false')"
+            fi
+            [[ "${_mon_active}" == "true" ]] || break
 
             _monitor_check_tor
             _monitor_check_firewall
